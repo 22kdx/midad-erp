@@ -301,6 +301,20 @@ interface ErpDao {
     @Query("DELETE FROM doc_schedule WHERE id = :id")
     fun deleteSchedule(id: String)
 
+    // ── الموازنات ──────────────────────────────────────
+    @Query("SELECT * FROM budget WHERE companyId = :c AND year = :year ORDER BY accountCode")
+    fun budgets(c: String, year: Int): List<BudgetEntity>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    fun upsertBudget(row: BudgetEntity)
+
+    @Query("DELETE FROM budget WHERE id = :id")
+    fun deleteBudget(id: String)
+
+    // ── حالة المستند (أمر شراء: معتمد/ملغى/محوَّل) ─────
+    @Query("UPDATE document SET status = :status WHERE id = :id")
+    fun updateDocumentStatus(id: String, status: String)
+
     @Insert
     fun insertOutbox(row: OutboxEntity)
 
@@ -325,7 +339,7 @@ interface ErpDao {
         AssetEntity::class, EmployeeEntity::class,
         WarehouseEntity::class, StockLevelEntity::class, BatchEntity::class,
         ShiftEntity::class, HeldInvoiceEntity::class, TableEntity::class,
-        BankStatementLineEntity::class, ScheduleEntity::class,
+        BankStatementLineEntity::class, ScheduleEntity::class, BudgetEntity::class,
     ],
     version = 5,
     exportSchema = false,

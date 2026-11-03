@@ -25,6 +25,7 @@ import com.example.midad.core.Warehouses
 import com.example.midad.core.AccountingException
 import com.example.midad.core.Backup
 import com.example.midad.core.Banking
+import com.example.midad.core.Budgets
 import com.example.midad.core.Chart
 import com.example.midad.core.DataPort
 import com.example.midad.core.DataTable
@@ -63,6 +64,7 @@ import com.example.midad.data.local.AuditEntity
 import com.example.midad.data.local.AssetEntity
 import com.example.midad.data.local.BankStatementLineEntity
 import com.example.midad.data.local.BatchEntity
+import com.example.midad.data.local.BudgetEntity
 import com.example.midad.data.local.HeldInvoiceEntity
 import com.example.midad.data.local.ShiftEntity
 import com.example.midad.data.local.StockLevelEntity
@@ -158,6 +160,17 @@ data class BatchRow(
     val expiry: String,
     val status: String,       // EXPIRED | SOON | OK
     val value: String,
+)
+
+data class BudgetRow(
+    val id: String,
+    val code: String,
+    val name: String,
+    val budget: String,
+    val actual: String,
+    val variance: String,
+    val usedPct: String,
+    val over: Boolean,
 )
 
 data class BankLineRow(
@@ -325,6 +338,12 @@ data class UiState(
     val schedules: List<ScheduleRow> = emptyList(),
     val schedulesDue: Int = 0,
     val schedulesDueValue: String = "0",
+    // الموازنات
+    val budgets: List<BudgetRow> = emptyList(),
+    val budgetYear: Int = 0,
+    val budgetTotal: String = "0",
+    val budgetActual: String = "0",
+    val budgetAlerts: List<String> = emptyList(),
 )
 
 class MidadViewModel(app: Application) : AndroidViewModel(app) {
@@ -584,6 +603,126 @@ class MidadViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     /** تحويل عرض سعر إلى فاتورة مرحلة — يعيد استخدام البنود كما هي */
+    /**
+     * أمر شراء: يُحفظ معتمداً بلا قيد ولا مخزون (لا يمسّ الأستاذ حتى يتحول لفاتورة).
+     * هذا هو الفرق المحاسبي الصحيح: الالتزام ينشأ عند الفاتورة لا عند الطلب.
+     */
+    fun savePurchaseOrder(
+        partyId: String?,
+        lines: List<LineInput>,
+        invoiceDiscountPct: String,
+        note: String,
+        onDone: () -> Unit = {},
+    ) {
+        if (lines.isEmpty()) {
+            _state.value = _state.value.copy(error = "أضف بنداً واحداً على الأقل")
+            return
+        }
+        if (!Rbac.allows(_state.value.role, com.example.midad.core.Perm.PURCHASE_EDIT)) {
+            _state.value = _state.value.copy(error = "لا تملك صلاحية إنشاء المشتريات")
+            return
+        }
+        viewModelScope.launch {
+            try {
+                withContext(Dispatchers.IO) {
+                    val docId = UUID.randomUUID().toString()
+                    val number = dao.nextNumber(company, DocKind.PURCHASE_ORDER.code, today().take(4))
+                    val totals = com.example.midad.core.DocEngine.totals(
+                        lines.map {
+                            DocLine(
+                                it.productId, it.name, (it.qty * 1000).toLong(),
+                                Money.parse(it.price.ifBlank { "0" }, currency), it.discountPct, it.taxPct, 0L,
+                            )
+                        },
+                        invoiceDiscountPct.ifBlank { "0" },
+                    )
+                    dao.insertDocument(
+                        DocumentEntity(
+                            id = docId, companyId = company, kind = DocKind.PURCHASE_ORDER.code,
+                            number = number, partyId = partyId, date = today(), currency = currency,
+                            status = DocStatus.CONFIRMED.code,
+                            invoiceDiscountPct = invoiceDiscountPct.ifBlank { "0" },
+                            grossMinor = totals.gross, discountMinor = totals.discount,
+                            netMinor = totals.net, taxMinor = totals.tax,
+                            roundingMinor = totals.rounding, totalMinor = totals.total,
+                            paidMinor = 0L, entryId = null, note = note,
+                            createdBy = _state.value.userName,
+                        ),
+                    )
+                    dao.insertDocLines(
+                        totals.lines.mapIndexed { i, lt ->
+                            DocumentLineEntity(
+                                documentId = docId, companyId = company, lineNo = i + 1,
+                                productId = lt.line.productId, name = lt.line.name,
+                                qtyMilli = lt.line.qtyMilli, unitPriceMinor = lt.line.unitPriceMinor,
+                                discountPct = lt.line.discountPct, taxRatePct = lt.line.taxRatePct,
+                                netMinor = lt.net, taxMinor = lt.tax, totalMinor = lt.total, cogsMinor = 0L,
+                            )
+                        },
+                    )
+                }
+                onDone()
+                refresh()
+                _state.value = _state.value.copy(message = "حُفظ أمر الشراء (لا قيد حتى تُسجَّل الفاتورة)")
+            } catch (e: Exception) {
+                _state.value = _state.value.copy(error = e.message ?: "تعذّر حفظ أمر الشراء")
+            }
+        }
+    }
+
+    /** تحويل أمر شراء إلى فاتورة مشتريات: تُنسخ البنود ويُرحَّل القيد، ويُعلَّم الأمر «محوَّل» */
+    fun convertPurchaseOrder(docId: String) {
+        viewModelScope.launch {
+            try {
+                val payload = withContext(Dispatchers.IO) {
+                    val doc = dao.document(company, docId) ?: return@withContext null
+                    if (doc.status == "CONVERTED" || doc.status == DocStatus.CANCELLED.code) return@withContext null
+                    val lines = dao.docLines(docId).map {
+                        LineInput(
+                            productId = it.productId, name = it.name,
+                            qty = it.qtyMilli / 1000.0,
+                            price = Money.format(it.unitPriceMinor, currency),
+                            discountPct = it.discountPct, taxPct = it.taxRatePct,
+                        )
+                    }
+                    Triple(doc.partyId, lines, doc.invoiceDiscountPct)
+                } ?: run {
+                    _state.value = _state.value.copy(error = "الأمر ملغى أو محوَّل مسبقاً")
+                    return@launch
+                }
+                saveDocument(
+                    kind = DocKind.PURCHASE,
+                    partyId = payload.first,
+                    lines = payload.second,
+                    invoiceDiscountPct = payload.third,
+                    paid = "",
+                    note = "من أمر شراء",
+                    onDone = {
+                        viewModelScope.launch {
+                            withContext(Dispatchers.IO) { dao.updateDocumentStatus(docId, "CONVERTED") }
+                            refresh()
+                        }
+                    },
+                )
+            } catch (e: Exception) {
+                _state.value = _state.value.copy(error = e.message ?: "تعذّر التحويل")
+            }
+        }
+    }
+
+    /** إلغاء مستند غير مُرحَّل (أمر شراء/عرض سعر) — المُرحَّل يُعالج بقيد عكسي فقط */
+    fun cancelDocument(docId: String) {
+        viewModelScope.launch {
+            try {
+                withContext(Dispatchers.IO) { dao.updateDocumentStatus(docId, DocStatus.CANCELLED.code) }
+                refresh()
+                _state.value = _state.value.copy(message = "أُلغي المستند")
+            } catch (e: Exception) {
+                _state.value = _state.value.copy(error = e.message ?: "تعذّر الإلغاء")
+            }
+        }
+    }
+
     fun convertQuote(docId: String) {
         viewModelScope.launch {
             try {
@@ -842,6 +981,8 @@ class MidadViewModel(app: Application) : AndroidViewModel(app) {
             "SR" -> "مردود مبيعات"
             "PINV" -> "فاتورة مشتريات"
             "QTE" -> "عرض سعر"
+            "PO" -> "أمر شراء"
+            "PR" -> "مردود مشتريات"
             else -> "مستند"
         }
         val paper = when (_state.value.paper) {
@@ -1711,6 +1852,56 @@ class MidadViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    // ── الموازنات التقديرية ──────────────────────────────────────
+    /** تحديد موازنة لحساب — تُدخَل برمز الحساب (مثل 5101) لتفادي قوائم طويلة */
+    fun addBudget(code: String, year: Int, month: Int, amount: String) {
+        val clean = code.trim()
+        if (clean.isEmpty()) {
+            _state.value = _state.value.copy(error = "أدخل رمز الحساب")
+            return
+        }
+        val minor = Money.parse(amount.ifBlank { "0" }, currency)
+        if (minor <= 0) {
+            _state.value = _state.value.copy(error = "أدخل مبلغ موازنة صحيحاً")
+            return
+        }
+        viewModelScope.launch {
+            try {
+                withContext(Dispatchers.IO) {
+                    val acc = dao.accounts(company).firstOrNull { it.code == clean }
+                        ?: throw AccountingException("BAD_ACCOUNT", "لا يوجد حساب بالرمز $clean")
+                    dao.upsertBudget(
+                        BudgetEntity(
+                            id = UUID.randomUUID().toString(),
+                            companyId = company,
+                            accountId = acc.id,
+                            accountCode = acc.code,
+                            accountName = acc.name,
+                            year = if (year <= 0) (today().take(4).toIntOrNull() ?: 2026) else year,
+                            month = month,
+                            amountMinor = minor,
+                        ),
+                    )
+                }
+                refresh()
+                _state.value = _state.value.copy(message = "حُفظت الموازنة")
+            } catch (e: Exception) {
+                _state.value = _state.value.copy(error = e.message ?: "تعذّر حفظ الموازنة")
+            }
+        }
+    }
+
+    fun deleteBudget(id: String) {
+        viewModelScope.launch {
+            try {
+                withContext(Dispatchers.IO) { dao.deleteBudget(id) }
+                refresh()
+            } catch (e: Exception) {
+                _state.value = _state.value.copy(error = e.message ?: "تعذّر الحذف")
+            }
+        }
+    }
+
     // ── الفواتير الدورية ─────────────────────────────────────────
     fun addSchedule(
         title: String,
@@ -2147,6 +2338,34 @@ class MidadViewModel(app: Application) : AndroidViewModel(app) {
             }.getOrDefault(0L)
         }
 
+        // ── الموازنات: تقديري مقابل فعلي من القيود ──
+        val budgetYear = today().take(4).toIntOrNull() ?: 2026
+        val budgetModels = dao.budgets(company, budgetYear)
+        val actualByCode = HashMap<String, Long>()
+        pairs.filter { (req, _) -> req.date.startsWith(budgetYear.toString()) }.forEach { (_, lines) ->
+            lines.forEach { l ->
+                val code = accounts[l.accountId]?.code
+                if (code != null) actualByCode[code] = (actualByCode[code] ?: 0L) + (l.debit - l.credit)
+            }
+        }
+        val budgetCompare = Budgets.compare(
+            budgetModels.map { Budgets.Line(it.accountCode, it.accountName, budgetYear.toString(), it.amountMinor) },
+            budgetYear.toString(),
+        ) { code -> kotlin.math.abs(actualByCode[code] ?: 0L) }
+        val budgetRows = budgetCompare.map { r ->
+            BudgetRow(
+                id = budgetModels.firstOrNull { it.accountCode == r.accountCode }?.id ?: r.accountCode,
+                code = r.accountCode,
+                name = r.accountName,
+                budget = Money.format(r.budgetMinor, currency),
+                actual = Money.format(r.actualMinor, currency),
+                variance = Money.format(r.varianceMinor, currency),
+                usedPct = r.usedPctText + "٪",
+                over = r.over,
+            )
+        }
+        val budgetTotals = Budgets.totals(budgetCompare)
+
         return UiState(
             ready = true,
             cash = Money.format(bal(Chart.Acc.CASH), currency),
@@ -2183,6 +2402,7 @@ class MidadViewModel(app: Application) : AndroidViewModel(app) {
                         "PINV" -> "فاتورة مشتريات"
                         "SR" -> "مردود مبيعات"
                         "PR" -> "مردود مشتريات"
+                        "PO" -> "أمر شراء"
                         "QTE" -> "عرض سعر"
                         else -> d.kind
                     },
@@ -2291,6 +2511,11 @@ class MidadViewModel(app: Application) : AndroidViewModel(app) {
             schedules = scheduleRows,
             schedulesDue = scheduleRows.sumOf { it.dueCount },
             schedulesDueValue = Money.format(dueTotal, currency),
+            budgets = budgetRows,
+            budgetYear = budgetYear,
+            budgetTotal = Money.format(budgetTotals.budgetMinor, currency),
+            budgetActual = Money.format(budgetTotals.actualMinor, currency),
+            budgetAlerts = Budgets.alerts(budgetCompare),
         )
     }
 

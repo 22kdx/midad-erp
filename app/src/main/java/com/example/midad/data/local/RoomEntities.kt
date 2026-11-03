@@ -384,3 +384,19 @@ data class ScheduleEntity(
     val lastRunDate: String? = null,
     val active: Boolean = true,
 )
+
+// ── الموازنات التقديرية (مرجع للمقارنة · لا تُرحَّل) ────────────
+@Entity(
+    tableName = "budget",
+    indices = [Index("companyId", "accountId", "year", "month", unique = true)],
+)
+data class BudgetEntity(
+    @PrimaryKey val id: String,
+    val companyId: String,
+    val accountId: String,
+    val accountCode: String,
+    val accountName: String,
+    val year: Int,
+    val month: Int = 0,        // 0 = سنوي
+    val amountMinor: Long,
+)

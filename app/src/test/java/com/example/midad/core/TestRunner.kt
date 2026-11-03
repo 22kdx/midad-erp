@@ -1680,6 +1680,65 @@ fun main() {
         eq(problems.any { it.contains("p2") }, true, "صنف بلا حركة:")
     }
 
+    // ── الموازنات التقديرية ──────────────────────────────────────
+    check("موازنة: دمج وتطبيع ومقارنة بالفعلي") {
+        val lines = listOf(
+            Budgets.Line("5101", "إيجار", "2026", Money.parse("1200")),
+            Budgets.Line("5101", "إيجار", "2026", Money.parse("800")),
+            Budgets.Line("5102", "كهرباء", "2026", Money.parse("500")),
+            Budgets.Line("5103", "صفر", "2026", 0L),
+        )
+        val norm = Budgets.normalize(lines)
+        eq(norm.size, 2, "الأسطر بعد الدمج:")
+        eq(norm.first { it.accountCode == "5101" }.amountMinor, Money.parse("2000"), "مجموع الحساب المكرر:")
+
+        val rows = Budgets.compare(lines, "2026") { code ->
+            if (code == "5101") Money.parse("2500") else Money.parse("100")
+        }
+        eq(rows.size, 2, "صفوف المقارنة:")
+        val rent = rows.first { it.accountCode == "5101" }
+        eq(rent.actualMinor, Money.parse("2500"), "الفعلي:")
+        eq(rent.varianceMinor, Money.parse("500"), "التجاوز:")
+        eq(rent.over, true, "متجاوز:")
+        eq(rent.usedPctText, "125.0", "نسبة الاستهلاك:")
+        val power = rows.first { it.accountCode == "5102" }
+        eq(power.over, false, "داخل الموازنة:")
+    }
+
+    check("موازنة: الإجماليات والتنبيهات") {
+        val rows = listOf(
+            Budgets.Row("5101", "إيجار", Money.parse("1000"), Money.parse("1100"), Money.parse("100"), 1100),
+            Budgets.Row("5102", "كهرباء", Money.parse("1000"), Money.parse("950"), -Money.parse("50"), 950),
+            Budgets.Row("5103", "صيانة", Money.parse("1000"), Money.parse("100"), -Money.parse("900"), 100),
+        )
+        val t = Budgets.totals(rows)
+        eq(t.budgetMinor, Money.parse("3000"), "إجمالي الموازنة:")
+        eq(t.actualMinor, Money.parse("2150"), "إجمالي الفعلي:")
+        eq(t.varianceMinor, -Money.parse("850"), "الفرق:")
+
+        val alerts = Budgets.alerts(rows)
+        eq(alerts.size, 2, "تنبيهان (تجاوز + اقتراب):")
+        eq(alerts.first().contains("تجاوز"), true, "أول تنبيه تجاوز:")
+    }
+
+    check("موازنة: توزيع سنوي على ١٢ شهراً بلا فقدان") {
+        val months = Budgets.monthly(Money.parse("1000"))
+        eq(months.size, 12, "عدد الأشهر:")
+        eq(months.sum(), Money.parse("1000"), "المجموع كما هو:")
+        val uneven = Budgets.monthly(1000L)
+        eq(uneven.sum(), 1000L, "بلا فقدان وحدة صغرى:")
+        eq(uneven.count { it == 84L }, 4, "الأشهر التي تحمل الباقي:")
+    }
+
+    check("موازنة: خط الأساس الزمني يميّز التوقيت من التجاوز") {
+        val halfYear = Budgets.expectedUsagePct(7, 1)      // بداية يوليو ≈ ٥٠٪
+        eq(halfYear in 480L..520L, true, "منتصف السنة:")
+        val row = Budgets.Row("5101", "إيجار", Money.parse("1000"), Money.parse("600"), -Money.parse("400"), 600)
+        eq(Budgets.isTimingOnly(row, 10, 1), true, "استهلاك ٦٠٪ في أكتوبر = طبيعي:")
+        val hot = Budgets.Row("5101", "إيجار", Money.parse("1000"), Money.parse("900"), -Money.parse("100"), 900)
+        eq(Budgets.isTimingOnly(hot, 3, 1), false, "٩٠٪ في مارس = تجاوز حقيقي:")
+    }
+
     // ── الخلاصة ───────────────────────────────────────────────
     println("\n" + "═".repeat(64))
     println("  نجح: $passed · فشل: $failed")

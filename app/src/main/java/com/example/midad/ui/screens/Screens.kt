@@ -145,6 +145,7 @@ fun DocEditorDialog(
         DocKind.PURCHASE -> "فاتورة مشتريات"
         DocKind.RETURN -> "مردود مبيعات"
         DocKind.PURCHASE_RETURN -> "مردود مشتريات"
+        DocKind.PURCHASE_ORDER -> "أمر شراء"
         else -> "مستند"
     }
 
@@ -261,6 +262,8 @@ fun DocEditorDialog(
                 onClick = {
                     if (asQuote) {
                         vm.saveQuote(partyId.ifBlank { null }, lines.toList(), invoiceDiscount, note) { onClose() }
+                    } else if (kind == DocKind.PURCHASE_ORDER) {
+                        vm.savePurchaseOrder(partyId.ifBlank { null }, lines.toList(), invoiceDiscount, note) { onClose() }
                     } else {
                         val cur = if (docCurrency == s.currency) null else docCurrency
                         vm.saveDocument(
@@ -270,7 +273,15 @@ fun DocEditorDialog(
                         ) { onClose() }
                     }
                 },
-            ) { Text(if (asQuote) "حفظ العرض" else "حفظ وترحيل") }
+            ) {
+                Text(
+                    when {
+                        asQuote -> "حفظ العرض"
+                        kind == DocKind.PURCHASE_ORDER -> "حفظ الأمر"
+                        else -> "حفظ وترحيل"
+                    },
+                )
+            }
         },
         dismissButton = { TextButton(onClick = { vm.dismissMessage(); onClose() }) { Text("إلغاء") } },
     )
@@ -363,8 +374,22 @@ fun PurchasesScreen(vm: MidadViewModel, s: UiState) {
     val c = LocalMizan.current
     var showForm by remember { mutableStateOf(false) }
     var showPurchaseReturn by remember { mutableStateOf(false) }
+    var showPO by remember { mutableStateOf(false) }
+    var tab by remember { mutableStateOf(0) }
 
     ScreenScaffold("المشتريات", "تكلفة الوصول تُرأسمَل على المخزون تلقائياً") {
+        TabRow(selectedTabIndex = tab, containerColor = c.surface) {
+            listOf("فواتير المشتريات", "أوامر الشراء").forEachIndexed { i, t ->
+                Tab(selected = tab == i, onClick = { tab = i }, text = { Text(t, fontSize = 12.sp) } )
+            }
+        }
+        Spacer(Modifier.height(10.dp))
+
+        if (tab == 1) {
+            PurchaseOrdersTab(vm, s, Modifier.weight(1f)) { showPO = true }
+            return@ScreenScaffold
+        }
+
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Button(
                 onClick = { showForm = true },
@@ -402,6 +427,66 @@ fun PurchasesScreen(vm: MidadViewModel, s: UiState) {
 
     if (showForm) DocEditorDialog(DocKind.PURCHASE, vm, s) { showForm = false }
     if (showPurchaseReturn) DocEditorDialog(DocKind.PURCHASE_RETURN, vm, s) { showPurchaseReturn = false }
+    if (showPO) DocEditorDialog(DocKind.PURCHASE_ORDER, vm, s) { showPO = false }
+}
+
+/** أوامر الشراء: التزام تشغيلي بلا قيد — يتحول لفاتورة فتُنشأ الذمة والتكلفة */
+@Composable
+private fun PurchaseOrdersTab(
+    vm: MidadViewModel,
+    s: UiState,
+    modifier: Modifier = Modifier,
+    onNew: () -> Unit,
+) {
+    val c = LocalMizan.current
+    val orders = s.documents.filter { it.title == "أمر شراء" }
+
+    Column(modifier) {
+        Button(
+            onClick = onNew,
+            modifier = Modifier.fillMaxWidth().height(48.dp),
+            shape = RoundedCornerShape(14.dp),
+        ) { Text("أمر شراء جديد", fontSize = 14.sp) }
+
+        Spacer(Modifier.height(12.dp))
+        SectionTitle("أوامر الشراء", "${orders.size}")
+        LazyColumn(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            if (orders.isEmpty()) item { EmptyHint("لا أوامر شراء بعد") }
+            items(orders) { d ->
+                val converted = d.status == "CONVERTED"
+                val cancelled = d.status == "CANCELLED"
+                MizanCard {
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                        Column(Modifier.weight(1f)) {
+                            Text("${d.number} · ${d.partyName}", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = c.text)
+                            Text(
+                                d.date + " · " + when {
+                                    converted -> "محوَّل إلى فاتورة"
+                                    cancelled -> "ملغى"
+                                    else -> "معتمد"
+                                },
+                                fontSize = 11.sp,
+                                color = if (converted) c.mint else if (cancelled) c.coral else c.text3,
+                            )
+                        }
+                        Text(d.total, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = c.text)
+                    }
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                        if (!converted && !cancelled) {
+                            TextButton(onClick = { vm.convertPurchaseOrder(d.id) }) {
+                                Text("إلى فاتورة", fontSize = 11.sp)
+                            }
+                            TextButton(onClick = { vm.cancelDocument(d.id) }) {
+                                Text("إلغاء", fontSize = 11.sp, color = c.text3)
+                            }
+                        }
+                        TextButton(onClick = { vm.buildPrint(d.id) }) { Text("طباعة", fontSize = 11.sp) }
+                    }
+                }
+            }
+            item { Spacer(Modifier.height(20.dp)) }
+        }
+    }
 }
 
 // ── المخزون: أصناف · مستودعات · دفعات ──────────────────────────
@@ -733,7 +818,10 @@ private fun BatchesTab(vm: MidadViewModel, s: UiState) {
 fun FinanceScreen(vm: MidadViewModel, s: UiState) {
     val c = LocalMizan.current
     var tab by remember { mutableStateOf(0) }
-    val tabs = listOf("الميزان", "قائمة الدخل", "الميزانية", "التدفق النقدي", "الضريبة", "الإقرار", "الأعمار", "البنك")
+    val tabs = listOf(
+        "الميزان", "قائمة الدخل", "الميزانية", "التدفق النقدي",
+        "الضريبة", "الإقرار", "الأعمار", "البنك", "الموازنات",
+    )
 
     ScreenScaffold("المالية", if (s.balanced) "الميزان متوازن ✓" else "⚠ الميزان غير متوازن") {
         ScrollableTabRow(selectedTabIndex = tab, edgePadding = 0.dp, containerColor = c.surface, divider = {}) {
@@ -838,7 +926,9 @@ fun FinanceScreen(vm: MidadViewModel, s: UiState) {
                 ReportRow("أكثر من ٦٠ يوم", s.aging90, c.coral)
             }
 
-            else -> BankTab(vm, s, Modifier.weight(1f))
+            7 -> BankTab(vm, s, Modifier.weight(1f))
+
+            else -> BudgetsTab(vm, s, Modifier.weight(1f))
         }
     }
 }

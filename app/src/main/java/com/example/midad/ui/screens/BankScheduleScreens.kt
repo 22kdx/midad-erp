@@ -356,3 +356,121 @@ private fun PartiesPicker(parties: List<Pair<String, String>>, onPick: (String?)
         }
     }
 }
+
+/**
+ * الموازنات التقديرية: يُدخل المستخدم سقفاً لكل حساب، ويُقارن بالفعلي من القيود.
+ * التنبيه يفرّق بين تجاوز حقيقي واستهلاك مبكر (خط الأساس الزمني في النواة).
+ */
+@Composable
+fun BudgetsTab(vm: MidadViewModel, s: UiState, modifier: Modifier = Modifier) {
+    val c = LocalMizan.current
+    var showForm by remember { mutableStateOf(false) }
+
+    Column(modifier, verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        MizanCard {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                Column {
+                    Text("الموازنة ${if (s.budgetYear > 0) s.budgetYear.toString() else ""}", fontSize = 11.sp, color = c.text3)
+                    Text(s.budgetTotal, fontSize = 16.sp, fontWeight = FontWeight.Bold, color = c.text)
+                }
+                Column(horizontalAlignment = Alignment.End) {
+                    Text("الفعلي", fontSize = 11.sp, color = c.text3)
+                    Text(s.budgetActual, fontSize = 16.sp, fontWeight = FontWeight.Bold, color = c.primary)
+                }
+            }
+            if (s.budgetAlerts.isNotEmpty()) {
+                Spacer(Modifier.height(8.dp))
+                s.budgetAlerts.take(3).forEach { a ->
+                    Text("⚠ $a", fontSize = 11.sp, color = c.coral)
+                }
+            }
+        }
+
+        Button(
+            onClick = { showForm = true },
+            modifier = Modifier.fillMaxWidth().height(46.dp),
+            shape = RoundedCornerShape(14.dp),
+        ) { Text("موازنة جديدة", fontSize = 13.sp) }
+
+        if (s.budgets.isEmpty()) {
+            Text(
+                "لا موازنات بعد. أضف سقفاً لحساب مصروف (مثل 5101 إيجار) لتتابع التجاوز شهرياً.",
+                fontSize = 12.sp,
+                color = c.text3,
+            )
+        }
+
+        LazyColumn(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            items(s.budgets) { row ->
+                MizanCard {
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Text("${row.code} ${row.name}", fontSize = 12.sp, color = c.text)
+                            Text(
+                                "موازنة ${row.budget} · فعلي ${row.actual}",
+                                fontSize = 10.sp,
+                                color = c.text3,
+                            )
+                        }
+                        Column(horizontalAlignment = Alignment.End) {
+                            Text(row.usedPct, fontSize = 12.sp, fontWeight = FontWeight.SemiBold,
+                                color = if (row.over) c.coral else c.mint)
+                            TextButton(onClick = { vm.deleteBudget(row.id) }) {
+                                Text("حذف", fontSize = 10.sp, color = c.text3)
+                            }
+                        }
+                    }
+                }
+            }
+            item { Spacer(Modifier.height(20.dp)) }
+        }
+    }
+
+    if (showForm) AddBudgetDialog(vm, s) { showForm = false }
+}
+
+@Composable
+private fun AddBudgetDialog(vm: MidadViewModel, s: UiState, onClose: () -> Unit) {
+    var code by remember { mutableStateOf("") }
+    var amount by remember { mutableStateOf("") }
+    var year by remember { mutableStateOf(s.budgetYear.toString()) }
+
+    AlertDialog(
+        onDismissRequest = onClose,
+        title = { Text("موازنة تقديرية", fontSize = 16.sp) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedTextField(
+                    code, { code = it },
+                    label = { Text("رمز الحساب (مثال 5101)") },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true,
+                )
+                OutlinedTextField(
+                    amount, { amount = it },
+                    label = { Text("سقف الموازنة للسنة") },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true,
+                )
+                OutlinedTextField(
+                    year, { year = it },
+                    label = { Text("السنة") },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true,
+                )
+                Text(
+                    "تُقارَن الموازنة بالفعلي من القيود فقط — لا تُنشئ قيداً.",
+                    fontSize = 10.sp,
+                    color = LocalMizan.current.text3,
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = {
+                vm.addBudget(code, year.toIntOrNull() ?: s.budgetYear, 0, amount)
+                onClose()
+            }) { Text("حفظ") }
+        },
+        dismissButton = { TextButton(onClick = onClose) { Text("إلغاء") } },
+    )
+}
