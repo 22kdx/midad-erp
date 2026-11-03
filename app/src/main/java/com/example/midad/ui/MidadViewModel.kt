@@ -42,6 +42,7 @@ import com.example.midad.core.Payroll
 import com.example.midad.core.JournalLine
 import com.example.midad.core.JournalRequest
 import com.example.midad.core.Money
+import com.example.midad.core.netBase
 import com.example.midad.core.NormLine
 import com.example.midad.core.Parties
 import com.example.midad.core.PaymentSplit
