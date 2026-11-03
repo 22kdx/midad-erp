@@ -104,7 +104,6 @@ interface ErpDao {
     fun movements(c: String, p: String): List<StockMovementEntity>
 
     // ── التدقيق والطابور ──────────────────────────────
-    @Insert
     // ── الأطراف ───────────────────────────────────────
     @Query("SELECT * FROM party WHERE companyId = :c ORDER BY name")
     fun parties(c: String): List<PartyEntity>
@@ -261,6 +260,7 @@ interface ErpDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     fun upsertCheque(row: ChequeEntity)
 
+    @Insert
     fun insertAudit(row: AuditEntity)
 
     @Query("SELECT * FROM audit_log WHERE companyId = :c ORDER BY id DESC LIMIT 200")
