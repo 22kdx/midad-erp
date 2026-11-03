@@ -50,6 +50,14 @@ dependencies {
 
     implementation("androidx.work:work-runtime-ktx:2.9.1")
 
+    // مسح الباركود: CameraX + ML Kit (نموذج مضمَّن يعمل بلا إنترنت)
+    val cameraX = "1.3.4"
+    implementation("androidx.camera:camera-core:$cameraX")
+    implementation("androidx.camera:camera-camera2:$cameraX")
+    implementation("androidx.camera:camera-lifecycle:$cameraX")
+    implementation("androidx.camera:camera-view:$cameraX")
+    implementation("com.google.mlkit:barcode-scanning:17.3.0")
+
     implementation("androidx.room:room-runtime:2.6.1")
     implementation("androidx.room:room-ktx:2.6.1")
     ksp("androidx.room:room-compiler:2.6.1")

@@ -79,6 +79,7 @@ private fun MidadRoot() {
     val state by vm.state.collectAsState()
     var tab by remember { mutableStateOf(0) }
     val snackbar = remember { SnackbarHostState() }
+    val appCtx = androidx.compose.ui.platform.LocalContext.current.applicationContext
 
     // إذن الإشعارات (أندرويد ١٣+) — التذكيرات محلية فقط، وبلا إذن يبقى التطبيق يعمل طبيعياً
     val notifPermission = androidx.activity.compose.rememberLauncherForActivityResult(
@@ -88,7 +89,7 @@ private fun MidadRoot() {
         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
             notifPermission.launch(android.Manifest.permission.POST_NOTIFICATIONS)
         }
-        com.example.midad.notify.Reminders.ensureChannel(applicationContext)
+        com.example.midad.notify.Reminders.ensureChannel(appCtx)
     }
 
     LaunchedEffect(state.message, state.error) {

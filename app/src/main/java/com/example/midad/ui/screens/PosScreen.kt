@@ -42,6 +42,7 @@ fun PosScreen(vm: MidadViewModel, s: UiState) {
     val c = LocalMizan.current
     val cart = remember { mutableStateMapOf<String, Pair<LineInput, Int>>() }
     var query by remember { mutableStateOf("") }
+    var showScan by remember { mutableStateOf(false) }
     val shown = if (query.isBlank()) s.items else s.items.filter {
         it.name.contains(query, true) || it.sku.contains(query, true) || it.barcode.contains(query, true)
     }
@@ -86,12 +87,27 @@ fun PosScreen(vm: MidadViewModel, s: UiState) {
             }
         }
         Spacer(Modifier.height(8.dp))
-        OutlinedTextField(
-            query, { query = it },
-            label = { Text("بحث أو باركود", fontSize = 11.sp) },
-            modifier = Modifier.fillMaxWidth(),
-            singleLine = true,
-        )
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+            OutlinedTextField(
+                query, { query = it },
+                label = { Text("بحث أو باركود", fontSize = 11.sp) },
+                modifier = Modifier.weight(1f),
+                singleLine = true,
+            )
+            OutlinedButton(
+                onClick = { showScan = true },
+                shape = RoundedCornerShape(12.dp),
+            ) { Text("مسح", fontSize = 12.sp) }
+        }
+        if (showScan) {
+            BarcodeScannerDialog(
+                onDetected = { code ->
+                    query = code
+                    showScan = false
+                },
+                onClose = { showScan = false },
+            )
+        }
         Spacer(Modifier.height(8.dp))
         LazyVerticalGrid(
             columns = GridCells.Fixed(2),

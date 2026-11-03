@@ -54,7 +54,6 @@ import com.example.midad.core.PaymentSplit
 import com.example.midad.core.Pin
 import com.example.midad.core.PostedEntry
 import com.example.midad.core.PostingService
-import com.example.midad.core.PrintCompany
 import com.example.midad.core.PrintDoc
 import com.example.midad.core.Printing
 import com.example.midad.core.Rbac
@@ -1008,8 +1007,8 @@ class MidadViewModel(app: Application) : AndroidViewModel(app) {
                     sheet,
                     PrintCompany(
                         name = co?.name ?: "مؤسستي",
-                        address = co?.address ?: "",
-                        phone = co?.phone ?: "",
+                        address = "",
+                        phone = "",
                         taxNumber = co?.taxNumber ?: "",
                     ),
                     paper,
