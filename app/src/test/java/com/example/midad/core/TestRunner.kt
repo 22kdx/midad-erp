@@ -1739,6 +1739,52 @@ fun main() {
         eq(Budgets.isTimingOnly(hot, 3, 1), false, "٩٠٪ في مارس = تجاوز حقيقي:")
     }
 
+    // ── الأرقام التسلسلية ────────────────────────────────────────
+    check("تسلسلي: توليد نطاق ورفض الأرقام غير الصالحة") {
+        val nums = Serials.generate("SN-", 1001, 3)
+        eq(nums, listOf("SN-1001", "SN-1002", "SN-1003"), "النطاق:")
+        eq(Serials.expand("SN-10", "SN-12"), listOf("SN-10", "SN-11", "SN-12"), "من/إلى:")
+        eq(Serials.validate("SN-1001"), null, "رقم صالح:")
+        eq(Serials.validate("SN 1001") != null, true, "مسافة مرفوضة:")
+        eq(Serials.validate("A") != null, true, "قصير مرفوض:")
+        eq(Serials.duplicates(listOf("A-1", "A-2", "A-1")), listOf("A-1"), "المكرر:")
+    }
+
+    check("تسلسلي: التخصيص FIFO ورفض النقص") {
+        val items = listOf(
+            Serials.Item("1", "p1", "SN-3", Serials.Status.IN_STOCK, date = "2026-03-03"),
+            Serials.Item("2", "p1", "SN-1", Serials.Status.IN_STOCK, date = "2026-03-01"),
+            Serials.Item("3", "p1", "SN-2", Serials.Status.SOLD, date = "2026-03-02"),
+            Serials.Item("4", "p2", "SN-9", Serials.Status.IN_STOCK, date = "2026-03-01"),
+        )
+        val alloc = Serials.allocateForSale(items, "p1", 2)
+        eq(alloc.map { it.number }, listOf("SN-1", "SN-3"), "الأقدم أولاً ومن المخزون فقط:")
+        var rejected = false
+        try { Serials.allocateForSale(items, "p1", 5) } catch (e: AccountingException) { rejected = true }
+        eq(rejected, true, "النقص يُرفض:")
+    }
+
+    check("تسلسلي: آلة الحالات والملخّص") {
+        eq(Serials.next(Serials.Status.IN_STOCK, Serials.Action.SELL), Serials.Status.SOLD, "بيع:")
+        eq(Serials.next(Serials.Status.SOLD, Serials.Action.RETURN), Serials.Status.RETURNED, "مرتجع:")
+        eq(Serials.next(Serials.Status.RETURNED, Serials.Action.RESTOCK), Serials.Status.IN_STOCK, "إعادة للمخزون:")
+        var rejected = false
+        try { Serials.next(Serials.Status.SOLD, Serials.Action.VOID) } catch (e: AccountingException) { rejected = true }
+        eq(rejected, true, "إلغاء المُباع مرفوض:")
+
+        val items = listOf(
+            Serials.Item("1", "p1", "SN-1", Serials.Status.IN_STOCK),
+            Serials.Item("2", "p1", "SN-2", Serials.Status.IN_STOCK),
+            Serials.Item("3", "p1", "SN-3", Serials.Status.SOLD),
+            Serials.Item("4", "p1", "SN-4", Serials.Status.RETURNED),
+        )
+        val sum = Serials.summary(items)
+        eq(sum.inStock, 2, "في المخزون:")
+        eq(sum.sold, 1, "مُباع:")
+        eq(sum.total, 4, "الإجمالي:")
+        eq(Serials.reconciliationGap(items, "p1", 3_000L), -1_000L, "فرق التسوية (رقم ناقص):")
+    }
+
     // ── الخلاصة ───────────────────────────────────────────────
     println("\n" + "═".repeat(64))
     println("  نجح: $passed · فشل: $failed")

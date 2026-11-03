@@ -82,7 +82,13 @@ fun VouchersScreen(vm: MidadViewModel, s: UiState) {
             item {
                 MizanCard {
                     SectionTitle("شيكات", "${s.cheques.size}")
-                    Button(onClick = { showCheque = true }, shape = RoundedCornerShape(14.dp)) { Text("شيك جديد") }
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Button(onClick = { showCheque = true }, shape = RoundedCornerShape(14.dp)) { Text("شيك جديد") }
+                        OutlinedButton(
+                            onClick = { vm.printChequesPortfolio("ALL") },
+                            shape = RoundedCornerShape(14.dp),
+                        ) { Text("طباعة الحافظة") }
+                    }
                 }
             }
 

@@ -15,6 +15,7 @@ import com.example.midad.core.Holds
 import com.example.midad.core.Recurring
 import com.example.midad.core.Restaurant
 import com.example.midad.core.SaleFact
+import com.example.midad.core.Serials
 import com.example.midad.core.Shift
 import com.example.midad.core.Shifts
 import com.example.midad.core.StockLevel
@@ -33,6 +34,9 @@ import com.example.midad.core.DocKind
 import com.example.midad.core.DocLine
 import com.example.midad.core.DocStatus
 import com.example.midad.core.DueWatch
+import com.example.midad.core.Paper
+import com.example.midad.core.Portfolio
+import com.example.midad.core.PrintCompany
 import com.example.midad.core.ErpStore
 import com.example.midad.core.FixedAssets
 import com.example.midad.core.ItemRow
@@ -62,6 +66,7 @@ import com.example.midad.core.Tafqeet
 import com.example.midad.data.local.AccountEntity
 import com.example.midad.data.local.AuditEntity
 import com.example.midad.data.local.AssetEntity
+import com.example.midad.data.local.AttachmentEntity
 import com.example.midad.data.local.BankStatementLineEntity
 import com.example.midad.data.local.BatchEntity
 import com.example.midad.data.local.BudgetEntity
@@ -81,6 +86,7 @@ import com.example.midad.data.local.PartyEntity
 import com.example.midad.data.local.PeriodEntity
 import com.example.midad.data.local.ProductEntity
 import com.example.midad.data.local.ScheduleEntity
+import com.example.midad.data.local.SerialEntity
 import com.example.midad.data.local.SettingEntity
 import com.example.midad.data.local.StockEntity
 import com.example.midad.data.local.StockMovementEntity
@@ -160,6 +166,24 @@ data class BatchRow(
     val expiry: String,
     val status: String,       // EXPIRED | SOON | OK
     val value: String,
+)
+
+data class AttachmentRow(
+    val id: String,
+    val ownerId: String,
+    val name: String,
+    val sizeText: String,
+    val path: String,
+    val mime: String,
+)
+
+data class SerialRow(
+    val id: String,
+    val productName: String,
+    val number: String,
+    val status: String,
+    val statusLabel: String,
+    val date: String,
 )
 
 data class BudgetRow(
@@ -344,6 +368,13 @@ data class UiState(
     val budgetTotal: String = "0",
     val budgetActual: String = "0",
     val budgetAlerts: List<String> = emptyList(),
+    // الأرقام التسلسلية
+    val serials: List<SerialRow> = emptyList(),
+    val serialsInStock: Int = 0,
+    val serialsSold: Int = 0,
+    // المرفقات
+    val attachments: List<AttachmentRow> = emptyList(),
+    val remindersOn: Boolean = true,
 )
 
 class MidadViewModel(app: Application) : AndroidViewModel(app) {
@@ -539,6 +570,11 @@ class MidadViewModel(app: Application) : AndroidViewModel(app) {
                             )
                         },
                     )
+                    if (kind == DocKind.INVOICE) {
+                        inputs.filterNot { it.isService }.forEach {
+                            consumeSerials(it.productId, it.qtyMilli, lastDocId)
+                        }
+                    }
                 }
                 onSaved(lastDocId)
                 onDone()
@@ -923,6 +959,66 @@ class MidadViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch {
             val html = withContext(Dispatchers.IO) { renderPrint(documentId) }
             _state.value = _state.value.copy(printHtml = html.first, printTitle = html.second)
+        }
+    }
+
+    /**
+     * حافظة الشيكات المطبوعة — الكل أو وارد/صادر، وبحالة اختيارية.
+     * تُبنى من نفس بيانات الشيكات المُرحَّلة؛ لا تُنشئ أثراً محاسبياً.
+     */
+    fun printChequesPortfolio(direction: String = "ALL", status: String = "ALL") {
+        viewModelScope.launch {
+            try {
+                val rows = withContext(Dispatchers.IO) {
+                    val partyNames = dao.parties(company).associate { it.id to it.name }
+                    dao.cheques(company).map { ch ->
+                        Portfolio.Row(
+                            number = ch.number,
+                            party = partyNames[ch.partyId] ?: "—",
+                            bank = ch.bank,
+                            dueDate = ch.dueDate,
+                            amountMinor = ch.amountMinor,
+                            statusLabel = when (ch.status) {
+                                "RECEIVED" -> "مستلم"
+                                "DEPOSITED" -> "مودع"
+                                "CLEARED" -> "محقق"
+                                "BOUNCED" -> "مرتجع"
+                                else -> ch.status
+                            },
+                            incoming = ch.direction == "IN",
+                        )
+                    }
+                }
+                val sheet = Portfolio.Sheet(
+                    title = when (direction) {
+                        "IN" -> "حافظة الشيكات الواردة"
+                        "OUT" -> "حافظة الشيكات الصادرة"
+                        else -> "حافظة الشيكات"
+                    },
+                    asOf = today(),
+                    rows = Portfolio.filter(rows, direction, status),
+                )
+                val co = dao.company(company)
+                val paper = when (_state.value.paper) {
+                    "A5" -> com.example.midad.core.Paper.A5
+                    "THERMAL_80" -> com.example.midad.core.Paper.THERMAL_80
+                    else -> com.example.midad.core.Paper.A4
+                }
+                val html = Portfolio.html(
+                    sheet,
+                    PrintCompany(
+                        name = co?.name ?: "مؤسستي",
+                        address = co?.address ?: "",
+                        phone = co?.phone ?: "",
+                        taxNumber = co?.taxNumber ?: "",
+                    ),
+                    paper,
+                    _state.value.currency,
+                )
+                _state.value = _state.value.copy(printHtml = html, printTitle = sheet.title)
+            } catch (e: Exception) {
+                _state.value = _state.value.copy(error = e.message ?: "تعذّرت الطباعة")
+            }
         }
     }
 
@@ -1852,6 +1948,179 @@ class MidadViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    // ── التذكيرات المحلية ───────────────────────────────────────
+    /** تفعيل/تعطيل التذكير اليومي — يُخزَّن في الإعدادات ويُلغي العمل المجدول فوراً */
+    fun setReminders(context: android.content.Context, enabled: Boolean) {
+        viewModelScope.launch {
+            try {
+                withContext(Dispatchers.IO) {
+                    dao.upsertSetting(SettingEntity("reminders", if (enabled) "1" else "0"))
+                }
+                runCatching {
+                    val app = context.applicationContext
+                    if (enabled) com.example.midad.notify.Reminders.schedule(app)
+                    else com.example.midad.notify.Reminders.cancel(app)
+                }
+                refresh()
+                _state.value = _state.value.copy(
+                    message = if (enabled) "فُعّل التذكير اليومي بعد ١٥ دقيقة" else "أُوقف التذكير اليومي",
+                )
+            } catch (e: Exception) {
+                _state.value = _state.value.copy(error = e.message ?: "تعذّر تحديث التذكير")
+            }
+        }
+    }
+
+    // ── المرفقات ────────────────────────────────────────────────
+    /**
+     * نسخ مرفق إلى مجلد التطبيق الخاص ثم تسجيله — الصورة لا تبقى في مجلد مؤقت.
+     * تُقبل الصور وPDF فقط، وبحجم أقصى ١٠ م.ب.
+     */
+    fun addAttachment(context: android.content.Context, ownerType: String, ownerId: String, uri: android.net.Uri) {
+        viewModelScope.launch {
+            try {
+                withContext(Dispatchers.IO) {
+                    val resolver = context.contentResolver
+                    val mime = resolver.getType(uri) ?: "application/octet-stream"
+                    if (!mime.startsWith("image/") && mime != "application/pdf") {
+                        throw AccountingException("BAD_FILE", "المرفقات تقبل صوراً أو PDF فقط")
+                    }
+                    var name = "مرفق"
+                    resolver.query(uri, null, null, null, null)?.use { cur ->
+                        val idx = cur.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
+                        if (idx >= 0 && cur.moveToFirst()) name = cur.getString(idx) ?: name
+                    }
+                    val dir = java.io.File(context.filesDir, "attachments").apply { mkdirs() }
+                    val target = java.io.File(dir, UUID.randomUUID().toString() + "_" + name.replace('/', '_'))
+                    val size = resolver.openInputStream(uri)?.use { input ->
+                        target.outputStream().use { output -> input.copyTo(output).toLong() }
+                    } ?: 0L
+                    if (size > 10L * 1024 * 1024) {
+                        target.delete()
+                        throw AccountingException("TOO_LARGE", "حجم المرفق يتجاوز ١٠ م.ب")
+                    }
+                    dao.insertAttachment(
+                        AttachmentEntity(
+                            id = UUID.randomUUID().toString(),
+                            companyId = company,
+                            ownerType = ownerType,
+                            ownerId = ownerId,
+                            name = name,
+                            mime = mime,
+                            sizeBytes = size,
+                            localPath = target.absolutePath,
+                        ),
+                    )
+                }
+                refresh()
+                _state.value = _state.value.copy(message = "أُضيف المرفق")
+            } catch (e: Exception) {
+                _state.value = _state.value.copy(error = e.message ?: "تعذّر إضافة المرفق")
+            }
+        }
+    }
+
+    fun deleteAttachment(id: String, path: String) {
+        viewModelScope.launch {
+            try {
+                withContext(Dispatchers.IO) {
+                    runCatching { java.io.File(path).delete() }
+                    dao.deleteAttachment(id)
+                }
+                refresh()
+            } catch (e: Exception) {
+                _state.value = _state.value.copy(error = e.message ?: "تعذّر حذف المرفق")
+            }
+        }
+    }
+
+    // ── الأرقام التسلسلية ────────────────────────────────────────
+    /** توليد أرقام متسلسلة لصنف: بادئة + بداية + عدد */
+    fun addSerials(productId: String, prefix: String, from: Int, count: Int) {
+        if (productId.isBlank()) {
+            _state.value = _state.value.copy(error = "اختر الصنف")
+            return
+        }
+        if (count <= 0) {
+            _state.value = _state.value.copy(error = "أدخل عدداً صحيحاً")
+            return
+        }
+        viewModelScope.launch {
+            try {
+                withContext(Dispatchers.IO) {
+                    val product = dao.products(company).firstOrNull { it.id == productId }
+                    val numbers = Serials.generate(prefix.trim(), from, count)
+                    numbers.forEach {
+                        Serials.validate(it)?.let { msg -> throw AccountingException("BAD_LINE", msg) }
+                    }
+                    val existing = dao.serials(company).map { it.number }.toSet()
+                    val fresh = numbers.filterNot { it in existing }
+                    if (fresh.isEmpty()) {
+                        throw AccountingException("DUPLICATE", "كل الأرقام موجودة مسبقاً")
+                    }
+                    dao.insertSerials(
+                        fresh.map {
+                            SerialEntity(
+                                id = UUID.randomUUID().toString(),
+                                companyId = company,
+                                productId = productId,
+                                productName = product?.name ?: productId,
+                                number = it,
+                                status = Serials.Status.IN_STOCK.code,
+                                date = today(),
+                            )
+                        },
+                    )
+                }
+                refresh()
+                _state.value = _state.value.copy(message = "أُضيفت الأرقام التسلسلية")
+            } catch (e: Exception) {
+                _state.value = _state.value.copy(error = e.message ?: "تعذّر توليد الأرقام")
+            }
+        }
+    }
+
+    fun setSerialStatus(id: String, action: Serials.Action) {
+        viewModelScope.launch {
+            try {
+                withContext(Dispatchers.IO) {
+                    val row = dao.serials(company).firstOrNull { it.id == id } ?: return@withContext
+                    val current = runCatching { Serials.Status.valueOf(row.status) }
+                        .getOrDefault(Serials.Status.IN_STOCK)
+                    val next = Serials.next(current, action)
+                    dao.updateSerial(id, next.code, row.documentId, today())
+                }
+                refresh()
+            } catch (e: Exception) {
+                _state.value = _state.value.copy(error = e.message ?: "تعذّر تحديث الحالة")
+            }
+        }
+    }
+
+    fun deleteSerial(id: String) {
+        viewModelScope.launch {
+            try {
+                withContext(Dispatchers.IO) { dao.deleteSerial(id) }
+                refresh()
+            } catch (e: Exception) {
+                _state.value = _state.value.copy(error = e.message ?: "تعذّر الحذف")
+            }
+        }
+    }
+
+    /** تخصيص أرقام تسلسلية للبيع بعد نجاح القيد — بلا أثر محاسبي إضافي */
+    private suspend fun consumeSerials(productId: String, qtyMilli: Long, docId: String) {
+        runCatching {
+            val need = (qtyMilli / 1000).toInt()
+            if (need <= 0) return@runCatching
+            val pool = dao.serialsInStock(company, productId)
+            if (pool.isEmpty()) return@runCatching
+            pool.take(need).forEach {
+                dao.updateSerial(it.id, Serials.Status.SOLD.code, docId, today())
+            }
+        }
+    }
+
     // ── الموازنات التقديرية ──────────────────────────────────────
     /** تحديد موازنة لحساب — تُدخَل برمز الحساب (مثل 5101) لتفادي قوائم طويلة */
     fun addBudget(code: String, year: Int, month: Int, amount: String) {
@@ -2366,6 +2635,35 @@ class MidadViewModel(app: Application) : AndroidViewModel(app) {
         }
         val budgetTotals = Budgets.totals(budgetCompare)
 
+        // ── الأرقام التسلسلية ──
+        val serialModels = dao.serials(company).map {
+            Serials.Item(
+                id = it.id, productId = it.productId, number = it.number,
+                status = runCatching { Serials.Status.valueOf(it.status) }.getOrDefault(Serials.Status.IN_STOCK),
+                documentId = it.documentId, date = it.date,
+            )
+        }
+        val serialSummary = Serials.summary(serialModels)
+
+        val attachmentsUi = dao.attachments(company).map {
+            AttachmentRow(
+                id = it.id,
+                ownerId = it.ownerId,
+                name = it.name,
+                sizeText = when {
+                    it.sizeBytes >= 1_048_576 -> "${it.sizeBytes / 1_048_576} م.ب"
+                    it.sizeBytes >= 1024 -> "${it.sizeBytes / 1024} ك.ب"
+                    else -> "${it.sizeBytes} بايت"
+                },
+                path = it.localPath,
+                mime = it.mime,
+            )
+        }
+        val serialUi = dao.serials(company).map {
+            val st = runCatching { Serials.Status.valueOf(it.status) }.getOrDefault(Serials.Status.IN_STOCK)
+            SerialRow(it.id, it.productName.ifBlank { productName(it.productId) }, it.number, st.code, st.label, it.date ?: "—")
+        }
+
         return UiState(
             ready = true,
             cash = Money.format(bal(Chart.Acc.CASH), currency),
@@ -2516,6 +2814,11 @@ class MidadViewModel(app: Application) : AndroidViewModel(app) {
             budgetTotal = Money.format(budgetTotals.budgetMinor, currency),
             budgetActual = Money.format(budgetTotals.actualMinor, currency),
             budgetAlerts = Budgets.alerts(budgetCompare),
+            serials = serialUi,
+            serialsInStock = serialSummary.inStock,
+            serialsSold = serialSummary.sold,
+            attachments = attachmentsUi,
+            remindersOn = settings["reminders"] != "0",
         )
     }
 

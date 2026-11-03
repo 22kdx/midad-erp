@@ -354,6 +354,7 @@ fun SalesScreen(vm: MidadViewModel, s: UiState) {
                         Column(horizontalAlignment = Alignment.End) {
                             Text(d.total, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = c.text)
                             TextButton(onClick = { vm.buildPrint(d.id) }) { Text("طباعة", fontSize = 11.sp) }
+                        AttachmentButton(vm, s, d.id)
                         }
                     }
                 }
@@ -416,6 +417,7 @@ fun PurchasesScreen(vm: MidadViewModel, s: UiState) {
                         Column(horizontalAlignment = Alignment.End) {
                             Text(d.total, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = c.coral)
                             TextButton(onClick = { vm.buildPrint(d.id) }) { Text("طباعة", fontSize = 11.sp) }
+                        AttachmentButton(vm, s, d.id)
                         }
                     }
                 }
@@ -481,6 +483,7 @@ private fun PurchaseOrdersTab(
                             }
                         }
                         TextButton(onClick = { vm.buildPrint(d.id) }) { Text("طباعة", fontSize = 11.sp) }
+                        AttachmentButton(vm, s, d.id)
                     }
                 }
             }
@@ -497,7 +500,7 @@ fun InventoryScreen(vm: MidadViewModel, s: UiState) {
 
     ScreenScaffold("المخزون", "متوسط تكلفة مرجّح · مطابقة دائمية مع الحساب") {
         TabRow(selectedTabIndex = tab, containerColor = c.surface) {
-            listOf("الأصناف", "المستودعات", "الدفعات").forEachIndexed { i, t ->
+            listOf("الأصناف", "المستودعات", "الدفعات", "تسلسلي").forEachIndexed { i, t ->
                 Tab(selected = tab == i, onClick = { tab = i }, text = { Text(t, fontSize = 12.sp) })
             }
         }
@@ -505,7 +508,8 @@ fun InventoryScreen(vm: MidadViewModel, s: UiState) {
         when (tab) {
             0 -> ItemsTab(vm, s)
             1 -> WarehousesTab(vm, s)
-            else -> BatchesTab(vm, s)
+            2 -> BatchesTab(vm, s)
+            else -> SerialsTab(vm, s)
         }
     }
 }

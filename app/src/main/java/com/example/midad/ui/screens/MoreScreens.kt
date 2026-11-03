@@ -278,6 +278,7 @@ private fun SecurityTab(vm: MidadViewModel, s: UiState) {
     var pin by remember { mutableStateOf("") }
 
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        RemindersCard(vm, s)
         MizanCard {
             SectionTitle("رمز الدخول (PIN)", if (s.pinConfigured) "مُفعّل" else "غير مُفعّل")
             Text(
@@ -581,5 +582,25 @@ private fun printDocument(context: Context, title: String, webView: WebView) {
 private fun EmptyHintRow(text: String) {
     Box(Modifier.fillMaxWidth().padding(20.dp), contentAlignment = Alignment.Center) {
         Text(text, fontSize = 12.sp, color = LocalMizan.current.text3, textAlign = TextAlign.Center)
+    }
+}
+
+/** تذكير يومي محلي — إشعار واحد يجمع الشيكات والدوريات والمستحقات */
+@Composable
+private fun RemindersCard(vm: MidadViewModel, s: UiState) {
+    val c = LocalMizan.current
+    val ctx = androidx.compose.ui.platform.LocalContext.current
+    MizanCard {
+        SectionTitle("التذكير اليومي", if (s.remindersOn) "مُفعّل" else "متوقف")
+        Text(
+            "إشعار محلي مرة يومياً: شيكات تستحق خلال ٣ أيام · فواتير دورية مستحقة · مستندات آجلة تجاوزت ٣٠ يوماً. " +
+                "لا يخرج شيء من الجهاز.",
+            fontSize = 11.sp, color = c.text3,
+        )
+        Spacer(Modifier.height(6.dp))
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Text(if (s.remindersOn) "يعمل" else "متوقف", fontSize = 12.sp, color = c.text2, modifier = Modifier.weight(1f))
+            Switch(checked = s.remindersOn, onCheckedChange = { vm.setReminders(ctx.applicationContext, it) })
+        }
     }
 }

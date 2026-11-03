@@ -474,3 +474,220 @@ private fun AddBudgetDialog(vm: MidadViewModel, s: UiState, onClose: () -> Unit)
         dismissButton = { TextButton(onClick = onClose) { Text("إلغاء") } },
     )
 }
+
+/**
+ * الأرقام التسلسلية: تتبّع الوحدة الواحدة. لا تُغيّر أي قيد،
+ * لكنها تمنع بيع وحدة مرتين وتُظهر الحقيقي من المُباع.
+ */
+@Composable
+fun SerialsTab(vm: MidadViewModel, s: UiState) {
+    val c = LocalMizan.current
+    var showForm by remember { mutableStateOf(false) }
+
+    Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        MizanCard {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                Column {
+                    Text("في المخزون", fontSize = 11.sp, color = c.text3)
+                    Text("${s.serialsInStock}", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = c.primary)
+                }
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text("مُباع", fontSize = 11.sp, color = c.text3)
+                    Text("${s.serialsSold}", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = c.text)
+                }
+                Column(horizontalAlignment = Alignment.End) {
+                    Text("الإجمالي", fontSize = 11.sp, color = c.text3)
+                    Text("${s.serials.size}", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = c.text2)
+                }
+            }
+            Spacer(Modifier.height(6.dp))
+            Text(
+                "عند بيع صنف له أرقام تسلسلية، تُخصَّص الأقدم إدخالاً وتُعلَّم «مُباع» تلقائياً.",
+                fontSize = 10.sp,
+                color = c.text3,
+            )
+        }
+
+        Button(
+            onClick = { showForm = true },
+            modifier = Modifier.fillMaxWidth().height(46.dp),
+            shape = RoundedCornerShape(14.dp),
+        ) { Text("توليد أرقام لصنف", fontSize = 13.sp) }
+
+        if (s.serials.isEmpty()) {
+            EmptySerialsHint()
+        }
+
+        LazyColumn(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            items(s.serials) { row ->
+                MizanCard {
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Text(row.number, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = c.text)
+                            Text("${row.productName} · ${row.date}", fontSize = 10.sp, color = c.text3)
+                        }
+                        Text(
+                            row.statusLabel,
+                            fontSize = 10.sp,
+                            color = when (row.status) {
+                                "IN_STOCK" -> c.primary
+                                "SOLD" -> c.mint
+                                "RETURNED" -> c.amber
+                                else -> c.text3
+                            },
+                        )
+                        if (row.status == "SOLD") {
+                            TextButton(onClick = { vm.setSerialStatus(row.id, com.example.midad.core.Serials.Action.RETURN) }) {
+                                Text("مرتجع", fontSize = 10.sp)
+                            }
+                        }
+                        TextButton(onClick = { vm.deleteSerial(row.id) }) {
+                            Text("حذف", fontSize = 10.sp, color = c.text3)
+                        }
+                    }
+                }
+            }
+            item { Spacer(Modifier.height(20.dp)) }
+        }
+    }
+
+    if (showForm) AddSerialsDialog(vm, s) { showForm = false }
+}
+
+@Composable
+private fun EmptySerialsHint() {
+    val c = LocalMizan.current
+    Text(
+        "لا أرقام تسلسلية بعد. ولّد نطاقاً لصنف (مثل SN-1001 لمدة ٢٠ وحدة) لتتبّع كل وحدة.",
+        fontSize = 12.sp,
+        color = c.text3,
+    )
+}
+
+@Composable
+private fun AddSerialsDialog(vm: MidadViewModel, s: UiState, onClose: () -> Unit) {
+    val c = LocalMizan.current
+    var productId by remember { mutableStateOf(s.items.firstOrNull()?.id ?: "") }
+    var prefix by remember { mutableStateOf("SN-") }
+    var from by remember { mutableStateOf("1001") }
+    var count by remember { mutableStateOf("10") }
+
+    AlertDialog(
+        onDismissRequest = onClose,
+        title = { Text("توليد أرقام تسلسلية", fontSize = 16.sp) },
+        text = {
+            Column(
+                Modifier.heightIn(max = 380.dp).verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Text("الصنف", fontSize = 11.sp, color = c.text3)
+                s.items.take(8).forEach { item ->
+                    val selected = productId == item.id
+                    Text(
+                        item.name,
+                        fontSize = 11.sp,
+                        color = if (selected) c.primary else c.text2,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { productId = item.id }
+                            .padding(vertical = 4.dp),
+                    )
+                }
+                OutlinedTextField(prefix, { prefix = it }, label = { Text("البادئة") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
+                OutlinedTextField(from, { from = it }, label = { Text("يبدأ من") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
+                OutlinedTextField(count, { count = it }, label = { Text("العدد") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = {
+                vm.addSerials(productId, prefix, from.toIntOrNull() ?: 1, count.toIntOrNull() ?: 0)
+                onClose()
+            }) { Text("توليد") }
+        },
+        dismissButton = { TextButton(onClick = onClose) { Text("إلغاء") } },
+    )
+}
+
+/**
+ * مرفقات المستند: صور فواتير ورقية أو PDF تُنسخ إلى مساحة التطبيق الخاصة.
+ * لا أثر محاسبي — المرفق دليل فقط، وحجمه محدود في طبقة العرض (ViewModel).
+ */
+@Composable
+fun AttachmentsDialog(
+    vm: MidadViewModel,
+    s: UiState,
+    ownerType: String,
+    ownerId: String,
+    onClose: () -> Unit,
+) {
+    val c = LocalMizan.current
+    val ctx = androidx.compose.ui.platform.LocalContext.current
+    val mine = s.attachments.filter { it.ownerId == ownerId }
+
+    val picker = androidx.activity.compose.rememberLauncherForActivityResult(
+        contract = androidx.activity.result.contract.ActivityResultContracts.OpenDocument(),
+    ) { uri ->
+        if (uri != null) vm.addAttachment(ctx.applicationContext, ownerType, ownerId, uri)
+    }
+
+    AlertDialog(
+        onDismissRequest = onClose,
+        title = { Text("المرفقات (${mine.size})", fontSize = 16.sp) },
+        text = {
+            Column(
+                Modifier.heightIn(max = 360.dp).verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                if (mine.isEmpty()) {
+                    Text("لا مرفقات — أضف صورة الفاتورة الورقية أو ملف PDF.", fontSize = 12.sp, color = c.text3)
+                }
+                mine.forEach { a ->
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Text(a.name, fontSize = 12.sp, color = c.text)
+                            Text(a.sizeText, fontSize = 10.sp, color = c.text3)
+                        }
+                        TextButton(onClick = {
+                            runCatching {
+                                val file = java.io.File(a.path)
+                                val uri = androidx.core.content.FileProvider.getUriForFile(
+                                    ctx, ctx.packageName + ".files", file,
+                                )
+                                val intent = android.content.Intent(android.content.Intent.ACTION_VIEW).apply {
+                                    setDataAndType(uri, a.mime.ifBlank { "*/*" })
+                                    addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                }
+                                ctx.startActivity(intent)
+                            }
+                        }) { Text("فتح", fontSize = 11.sp) }
+                        TextButton(onClick = { vm.deleteAttachment(a.id, a.path) }) {
+                            Text("حذف", fontSize = 11.sp, color = c.text3)
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = {
+                picker.launch(arrayOf("image/*", "application/pdf"))
+            }) { Text("إضافة مرفق") }
+        },
+        dismissButton = { TextButton(onClick = onClose) { Text("إغلاق") } },
+    )
+}
+
+/** زر مرفقات جاهز للاستخدام داخل قوائم المستندات */
+@Composable
+fun AttachmentButton(vm: MidadViewModel, s: UiState, ownerId: String, ownerType: String = "DOCUMENT") {
+    var open by remember { mutableStateOf(false) }
+    val count = s.attachments.count { it.ownerId == ownerId }
+    val c = LocalMizan.current
+    TextButton(onClick = { open = true }) {
+        Text(
+            if (count > 0) "مرفق ($count)" else "مرفق",
+            fontSize = 11.sp,
+            color = if (count > 0) c.primary else c.text2,
+        )
+    }
+    if (open) AttachmentsDialog(vm, s, ownerType, ownerId) { open = false }
+}

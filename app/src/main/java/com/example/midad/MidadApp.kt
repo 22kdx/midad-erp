@@ -28,6 +28,8 @@ class MidadApp : Application() {
             .build()
         store = RoomErpStore(db.erpDao())
         posting = PostingService(store)
+        // تذكيرات محلية يومية — تُجدول مرة واحدة وتُلغى من الإعدادات
+        runCatching { com.example.midad.notify.Reminders.schedule(this) }
     }
 
     companion object {

@@ -400,3 +400,33 @@ data class BudgetEntity(
     val month: Int = 0,        // 0 = سنوي
     val amountMinor: Long,
 )
+
+// ── الأرقام التسلسلية (تتبّع الوحدة الواحدة) ────────────────────
+@Entity(
+    tableName = "serial",
+    indices = [Index("companyId", "productId"), Index("companyId", "number", unique = true)],
+)
+data class SerialEntity(
+    @PrimaryKey val id: String,
+    val companyId: String,
+    val productId: String,
+    val productName: String = "",
+    val number: String,
+    val status: String = "IN_STOCK",
+    val documentId: String? = null,
+    val date: String? = null,
+)
+
+// ── المرفقات (مستندات ممسوحة · صور · PDF) ───────────────────────
+@Entity(tableName = "attachment", indices = [Index("companyId", "ownerId")])
+data class AttachmentEntity(
+    @PrimaryKey val id: String,
+    val companyId: String,
+    val ownerType: String,        // DOCUMENT | PARTY | CHEQUE
+    val ownerId: String,
+    val name: String,
+    val mime: String = "",
+    val sizeBytes: Long = 0,
+    val localPath: String,
+    val createdAt: Long = System.currentTimeMillis(),
+)

@@ -301,6 +301,35 @@ interface ErpDao {
     @Query("DELETE FROM doc_schedule WHERE id = :id")
     fun deleteSchedule(id: String)
 
+    // ── المرفقات ───────────────────────────────────────
+    @Query("SELECT * FROM attachment WHERE companyId = :c ORDER BY createdAt DESC")
+    fun attachments(c: String): List<AttachmentEntity>
+
+    @Query("SELECT * FROM attachment WHERE companyId = :c AND ownerId = :ownerId ORDER BY createdAt DESC")
+    fun attachmentsOf(c: String, ownerId: String): List<AttachmentEntity>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    fun insertAttachment(row: AttachmentEntity)
+
+    @Query("DELETE FROM attachment WHERE id = :id")
+    fun deleteAttachment(id: String)
+
+    // ── الأرقام التسلسلية ──────────────────────────────
+    @Query("SELECT * FROM serial WHERE companyId = :c ORDER BY number")
+    fun serials(c: String): List<SerialEntity>
+
+    @Query("SELECT * FROM serial WHERE companyId = :c AND productId = :p AND status = 'IN_STOCK' ORDER BY date, number")
+    fun serialsInStock(c: String, p: String): List<SerialEntity>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    fun insertSerials(rows: List<SerialEntity>)
+
+    @Query("UPDATE serial SET status = :status, documentId = :docId, date = :date WHERE id = :id")
+    fun updateSerial(id: String, status: String, docId: String?, date: String)
+
+    @Query("DELETE FROM serial WHERE id = :id")
+    fun deleteSerial(id: String)
+
     // ── الموازنات ──────────────────────────────────────
     @Query("SELECT * FROM budget WHERE companyId = :c AND year = :year ORDER BY accountCode")
     fun budgets(c: String, year: Int): List<BudgetEntity>
@@ -340,6 +369,7 @@ interface ErpDao {
         WarehouseEntity::class, StockLevelEntity::class, BatchEntity::class,
         ShiftEntity::class, HeldInvoiceEntity::class, TableEntity::class,
         BankStatementLineEntity::class, ScheduleEntity::class, BudgetEntity::class,
+        SerialEntity::class, AttachmentEntity::class,
     ],
     version = 5,
     exportSchema = false,
