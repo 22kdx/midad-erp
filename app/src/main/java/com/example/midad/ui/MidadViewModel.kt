@@ -1688,7 +1688,7 @@ class MidadViewModel(app: Application) : AndroidViewModel(app) {
                     val accounts = dao.accounts(company).associateBy { it.id }
                     val bankAccountId = accounts.values.firstOrNull { it.code == Chart.Acc.BANK }?.id
                     if (bankAccountId != null) {
-                        val book = dao.entries(company).mapIndexedNotNull { idx, e ->
+                        val book = dao.entries(company, null, null).mapIndexedNotNull { idx, e ->
                             val delta = dao.linesOf(listOf(e.id))
                                 .filter { it.accountId == bankAccountId }
                                 .sumOf { it.debitMinor - it.creditMinor }
@@ -2080,8 +2080,10 @@ class MidadViewModel(app: Application) : AndroidViewModel(app) {
         // ── التسوية البنكية: كشف البنك مقابل حركة حساب البنك في الأستاذ ──
         val bankRows = dao.bankLines(company)
         val bankAccountId = accounts.entries.firstOrNull { it.value.code == Chart.Acc.BANK }?.key
-        val bookLines = if (bankAccountId == null) emptyList() else pairs.mapIndexedNotNull { idx, (req, lines) ->
-            val delta = lines.filter { it.accountId == bankAccountId }.sumOf { it.netBase() }
+        val bookLines = if (bankAccountId == null) emptyList() else pairs.mapIndexedNotNull { idx, pair ->
+            val req = pair.first
+            val normLines = pair.second
+            val delta = normLines.filter { it.accountId == bankAccountId }.sumOf { it.netBase() }
             if (delta == 0L) null
             else Banking.BookLine("$idx", req.date, req.description, delta)
         }
