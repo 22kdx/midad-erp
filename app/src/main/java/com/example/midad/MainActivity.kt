@@ -165,7 +165,7 @@ private fun MidadRoot() {
                 3 -> PurchasesScreen(vm, state)
                 4 -> InventoryScreen(vm, state)
                 5 -> PartiesScreen(vm, state)
-                6 -> FinanceScreen(state)
+                6 -> FinanceScreen(vm, state)
                 7 -> AnalyticsScreen(vm, state)
                 8 -> VouchersScreen(vm, state)
                 9 -> AssetsPayrollScreen(vm, state)
