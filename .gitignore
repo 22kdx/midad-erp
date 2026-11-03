@@ -1,0 +1,26 @@
+# Gradle / Android
+.gradle/
+build/
+app/build/
+local.properties
+*.iml
+.idea/
+captures/
+.externalNativeBuild/
+.cxx/
+
+# مخرجات الاختبار (تُبنى من جديد)
+out/
+test-output.txt
+
+# مفاتيح وتوقيع
+*.jks
+*.keystore
+keystore.properties
+*.apk
+*.aab
+*.idsig
+
+# نظام
+.DS_Store
+Thumbs.db
