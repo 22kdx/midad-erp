@@ -35,7 +35,10 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
-      - uses: android-actions/setup-android@v3
+      - name: التحقق من Android SDK الجاهز على المُشغّل
+        run: |
+          echo "ANDROID_HOME=$ANDROID_HOME"
+          ls "$ANDROID_HOME/platforms" | tail -3
       - name: مفتاح التخزين المؤقت لـ Gradle
         uses: actions/cache@v4
         with:
@@ -44,7 +47,9 @@ jobs:
             ~/.gradle/wrapper
           key: gradle-${{ hashFiles('**/*.gradle.kts', 'gradle/wrapper/gradle-wrapper.properties') }}
       - name: ترجمة APK
-        run: ./gradlew --no-daemon assembleDebug
+        run: |
+          chmod +x gradlew
+          ./gradlew --no-daemon --stacktrace assembleDebug
       - uses: actions/upload-artifact@v4
         with:
           name: midad-debug-apk
