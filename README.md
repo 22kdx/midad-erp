@@ -1,8 +1,8 @@
-# مِداد — تطبيق محاسبي عربي مستقل
+# TAMM — تطبيق محاسبي عربي مستقل
 
 [![اختبارات وبناء](https://github.com/22kdx/midad-erp/actions/workflows/tests.yml/badge.svg)](https://github.com/22kdx/midad-erp/actions/workflows/tests.yml)
 
-> **تحميل التطبيق:** [midad-1.0.2-debug.apk](https://github.com/22kdx/midad-erp/releases/latest) — أندرويد ٨ (API 26) وأحدث.
+> **تحميل التطبيق:** [tamm-1.0.3-debug.apk](https://github.com/22kdx/midad-erp/releases/latest) — أندرويد ٨ (API 26) وأحدث.
 > البناء يجري ويُختبر تلقائياً على GitHub Actions: ١٥٩ اختبار نواة + APK جاهز في كل دفعة.
 
 

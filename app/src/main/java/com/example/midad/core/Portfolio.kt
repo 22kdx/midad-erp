@@ -146,7 +146,7 @@ object Portfolio {
           <div class="sign"><div>المحاسب</div><div>المدير المالي</div></div>
           <footer>
             <span>${Printing.escape(company.footerNote)}</span>
-            <span>مِداد · ${Printing.escape(sheet.asOf)}</span>
+            <span>TAMM · ${Printing.escape(sheet.asOf)}</span>
           </footer>
         </body>
         </html>

@@ -128,7 +128,7 @@ private fun MidadRoot() {
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Column {
-                        Text("مِداد", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = c.primary)
+                        Text("TAMM", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = c.primary)
                         Text(
                             "${state.companyName} · ${if (state.balanced) "الميزان متوازن" else "الميزان غير متوازن"}",
                             fontSize = 11.sp,

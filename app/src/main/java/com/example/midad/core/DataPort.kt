@@ -70,7 +70,7 @@ object DataPort {
     fun read(text: String): List<DataTable> {
         val lines = text.replace("\r\n", "\n").lines()
         if (lines.firstOrNull()?.trim() != MAGIC)
-            throw AccountingException("BAD_FORMAT", "الملف ليس ملف بيانات مِداد")
+            throw AccountingException("BAD_FORMAT", "الملف ليس ملف بيانات TAMM")
         val out = ArrayList<DataTable>()
         var i = 1
         while (i < lines.size) {

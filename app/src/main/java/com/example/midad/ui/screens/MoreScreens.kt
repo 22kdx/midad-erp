@@ -471,7 +471,7 @@ fun LockScreen(vm: MidadViewModel, s: UiState) {
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
     ) {
-        Text("مِداد", fontSize = 30.sp, fontWeight = FontWeight.Bold, color = c.primary)
+        Text("TAMM", fontSize = 30.sp, fontWeight = FontWeight.Bold, color = c.primary)
         Spacer(Modifier.height(6.dp))
         Text("أدخل رمز الدخول", fontSize = 13.sp, color = c.text3)
         Spacer(Modifier.height(24.dp))

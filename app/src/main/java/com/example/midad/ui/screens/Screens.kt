@@ -31,7 +31,7 @@ import com.example.midad.ui.theme.LocalMizan
 @Composable
 fun DashboardScreen(vm: MidadViewModel, s: UiState) {
     val c = LocalMizan.current
-    ScreenScaffold("مِداد", "${s.companyName} · محاسبة كاملة على جهازك") {
+    ScreenScaffold("TAMM", "${s.companyName} · محاسبة كاملة على جهازك") {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             StatCard("الصندوق", s.cash, modifier = Modifier.weight(1f), accent = c.mint)
             StatCard("المخزون", s.inventory, modifier = Modifier.weight(1f), accent = c.blue)

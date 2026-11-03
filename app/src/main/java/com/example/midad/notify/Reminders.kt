@@ -45,7 +45,7 @@ object Reminders {
         val mgr = ctx.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         if (mgr.getNotificationChannel(CHANNEL_ID) != null) return
         mgr.createNotificationChannel(
-            NotificationChannel(CHANNEL_ID, "تذكيرات مِداد اليومية", NotificationManager.IMPORTANCE_DEFAULT).apply {
+            NotificationChannel(CHANNEL_ID, "تذكيرات TAMM اليومية", NotificationManager.IMPORTANCE_DEFAULT).apply {
                 description = "شيكات وفواتير دورية ومستحقات تحتاج متابعة"
             },
         )
@@ -105,7 +105,7 @@ object ReminderText {
             parts += "مستندات آجلة تجاوزت ٣٠ يوماً: $staleDocs"
         }
         if (parts.isEmpty()) return null
-        return "مِداد · متابعة اليوم" to parts.joinToString("\n")
+        return "TAMM · متابعة اليوم" to parts.joinToString("\n")
     }
 }
 
