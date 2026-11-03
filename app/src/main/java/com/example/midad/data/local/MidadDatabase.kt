@@ -269,6 +269,38 @@ interface ErpDao {
     @Query("SELECT * FROM audit_log WHERE companyId = :c AND entityId = :entityId ORDER BY id DESC")
     fun auditsOf(c: String, entityId: String): List<AuditEntity>
 
+    // ── كشف البنك والتسوية ─────────────────────────────
+    @Query("SELECT * FROM bank_statement WHERE companyId = :c ORDER BY date, id")
+    fun bankLines(c: String): List<BankStatementLineEntity>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    fun upsertBankLine(row: BankStatementLineEntity)
+
+    @Query("DELETE FROM bank_statement WHERE id = :id")
+    fun deleteBankLine(id: String)
+
+    @Query("UPDATE bank_statement SET matchedEntryId = :entryId WHERE id = :id")
+    fun matchBankLine(id: String, entryId: String?)
+
+    @Query("UPDATE bank_statement SET matchedEntryId = NULL WHERE companyId = :c")
+    fun clearBankMatches(c: String)
+
+    // ── الفواتير الدورية ───────────────────────────────
+    @Query("SELECT * FROM doc_schedule WHERE companyId = :c ORDER BY active DESC, startDate")
+    fun schedules(c: String): List<ScheduleEntity>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    fun upsertSchedule(row: ScheduleEntity)
+
+    @Query("UPDATE doc_schedule SET lastRunDate = :date WHERE id = :id")
+    fun markScheduleRun(id: String, date: String)
+
+    @Query("UPDATE doc_schedule SET active = :active WHERE id = :id")
+    fun setScheduleActive(id: String, active: Boolean)
+
+    @Query("DELETE FROM doc_schedule WHERE id = :id")
+    fun deleteSchedule(id: String)
+
     @Insert
     fun insertOutbox(row: OutboxEntity)
 
@@ -293,8 +325,9 @@ interface ErpDao {
         AssetEntity::class, EmployeeEntity::class,
         WarehouseEntity::class, StockLevelEntity::class, BatchEntity::class,
         ShiftEntity::class, HeldInvoiceEntity::class, TableEntity::class,
+        BankStatementLineEntity::class, ScheduleEntity::class,
     ],
-    version = 4,
+    version = 5,
     exportSchema = false,
 )
 abstract class MidadDatabase : RoomDatabase() {

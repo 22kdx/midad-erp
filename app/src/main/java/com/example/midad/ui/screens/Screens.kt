@@ -283,6 +283,7 @@ fun SalesScreen(vm: MidadViewModel, s: UiState) {
     var showForm by remember { mutableStateOf(false) }
     var showQuote by remember { mutableStateOf(false) }
     var showReturn by remember { mutableStateOf(false) }
+    var showSchedules by remember { mutableStateOf(false) }
 
     ScreenScaffold("المبيعات", "كل فاتورة = قيد متوازن مع تكلفتها الحقيقية") {
         Button(
@@ -303,6 +304,11 @@ fun SalesScreen(vm: MidadViewModel, s: UiState) {
                 modifier = Modifier.weight(1f).height(46.dp),
                 shape = RoundedCornerShape(14.dp),
             ) { Text("مردود", fontSize = 12.sp) }
+            OutlinedButton(
+                onClick = { showSchedules = true },
+                modifier = Modifier.weight(1f).height(46.dp),
+                shape = RoundedCornerShape(14.dp),
+            ) { Text("دورية", fontSize = 12.sp) }
         }
 
         val quotes = s.documents.filter { it.title == "عرض سعر" }
@@ -348,6 +354,7 @@ fun SalesScreen(vm: MidadViewModel, s: UiState) {
     if (showForm) DocEditorDialog(DocKind.INVOICE, vm, s) { showForm = false }
     if (showQuote) QuoteDialog(vm, s) { showQuote = false }
     if (showReturn) DocEditorDialog(DocKind.RETURN, vm, s) { showReturn = false }
+    if (showSchedules) SchedulesDialog(vm, s) { showSchedules = false }
 }
 
 // ── المشتريات ───────────────────────────────────────────────────
@@ -726,7 +733,7 @@ private fun BatchesTab(vm: MidadViewModel, s: UiState) {
 fun FinanceScreen(vm: MidadViewModel, s: UiState) {
     val c = LocalMizan.current
     var tab by remember { mutableStateOf(0) }
-    val tabs = listOf("الميزان", "قائمة الدخل", "الميزانية", "التدفق النقدي", "الضريبة", "الإقرار", "الأعمار")
+    val tabs = listOf("الميزان", "قائمة الدخل", "الميزانية", "التدفق النقدي", "الضريبة", "الإقرار", "الأعمار", "البنك")
 
     ScreenScaffold("المالية", if (s.balanced) "الميزان متوازن ✓" else "⚠ الميزان غير متوازن") {
         ScrollableTabRow(selectedTabIndex = tab, edgePadding = 0.dp, containerColor = c.surface, divider = {}) {
@@ -825,11 +832,13 @@ fun FinanceScreen(vm: MidadViewModel, s: UiState) {
                 }
             }
 
-            else -> Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            6 -> Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 ReportRow("١-٣٠ يوم", s.aging30, c.mint)
                 ReportRow("٣١-٦٠ يوم", s.aging60, c.amber)
                 ReportRow("أكثر من ٦٠ يوم", s.aging90, c.coral)
             }
+
+            else -> BankTab(vm, s, Modifier.weight(1f))
         }
     }
 }

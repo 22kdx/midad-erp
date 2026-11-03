@@ -12,6 +12,7 @@ import com.example.midad.core.Contracting
 import com.example.midad.core.GroupAgg
 import com.example.midad.core.HeldInvoice
 import com.example.midad.core.Holds
+import com.example.midad.core.Recurring
 import com.example.midad.core.Restaurant
 import com.example.midad.core.SaleFact
 import com.example.midad.core.Shift
@@ -23,6 +24,7 @@ import com.example.midad.core.Warehouse
 import com.example.midad.core.Warehouses
 import com.example.midad.core.AccountingException
 import com.example.midad.core.Backup
+import com.example.midad.core.Banking
 import com.example.midad.core.Chart
 import com.example.midad.core.DataPort
 import com.example.midad.core.DataTable
@@ -58,6 +60,7 @@ import com.example.midad.core.Tafqeet
 import com.example.midad.data.local.AccountEntity
 import com.example.midad.data.local.AuditEntity
 import com.example.midad.data.local.AssetEntity
+import com.example.midad.data.local.BankStatementLineEntity
 import com.example.midad.data.local.BatchEntity
 import com.example.midad.data.local.HeldInvoiceEntity
 import com.example.midad.data.local.ShiftEntity
@@ -74,6 +77,7 @@ import com.example.midad.data.local.JournalLineEntity
 import com.example.midad.data.local.PartyEntity
 import com.example.midad.data.local.PeriodEntity
 import com.example.midad.data.local.ProductEntity
+import com.example.midad.data.local.ScheduleEntity
 import com.example.midad.data.local.SettingEntity
 import com.example.midad.data.local.StockEntity
 import com.example.midad.data.local.StockMovementEntity
@@ -153,6 +157,27 @@ data class BatchRow(
     val expiry: String,
     val status: String,       // EXPIRED | SOON | OK
     val value: String,
+)
+
+data class BankLineRow(
+    val id: String,
+    val date: String,
+    val description: String,
+    val amount: String,
+    val matched: Boolean,
+    val matchedTo: String = "",
+)
+
+data class ScheduleRow(
+    val id: String,
+    val title: String,
+    val partyName: String,
+    val kindLabel: String,
+    val cycleLabel: String,
+    val nextDate: String,
+    val dueCount: Int,
+    val amount: String,
+    val active: Boolean,
 )
 
 data class HeldRow(val id: String, val label: String, val createdAt: String, val total: String, val items: Int)
@@ -288,6 +313,17 @@ data class UiState(
     val printTitle: String = "",
     val backupText: String? = null,
     val lastBackupAt: String? = null,
+    // التسوية البنكية
+    val bankLines: List<BankLineRow> = emptyList(),
+    val bankMatched: Int = 0,
+    val bankUnmatched: Int = 0,
+    val bankDifference: String = "0",
+    val bankBalanced: Boolean = false,
+    val bankHints: List<String> = emptyList(),
+    // الفواتير الدورية
+    val schedules: List<ScheduleRow> = emptyList(),
+    val schedulesDue: Int = 0,
+    val schedulesDueValue: String = "0",
 )
 
 class MidadViewModel(app: Application) : AndroidViewModel(app) {
@@ -1603,6 +1639,260 @@ class MidadViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     // ── تحديث الشاشة ─────────────────────────────────────────────
+    // ── التسوية البنكية ──────────────────────────────────────────
+    /** إضافة بند من كشف البنك (موجب = إيداع · سالب = سحب) */
+    fun addBankLine(date: String, description: String, amount: String) {
+        if (description.isBlank()) {
+            _state.value = _state.value.copy(error = "أدخل وصف حركة الكشف")
+            return
+        }
+        viewModelScope.launch {
+            try {
+                withContext(Dispatchers.IO) {
+                    val minor = Money.parse(amount.ifBlank { "0" }, currency)
+                    dao.upsertBankLine(
+                        BankStatementLineEntity(
+                            id = UUID.randomUUID().toString(),
+                            companyId = company,
+                            date = date.ifBlank { today() },
+                            description = description,
+                            amountMinor = minor,
+                        ),
+                    )
+                }
+                refresh()
+                _state.value = _state.value.copy(message = "أُضيف بند الكشف")
+            } catch (e: Exception) {
+                _state.value = _state.value.copy(error = e.message ?: "تعذّر إضافة البند")
+            }
+        }
+    }
+
+    fun deleteBankLine(id: String) {
+        viewModelScope.launch {
+            try {
+                withContext(Dispatchers.IO) { dao.deleteBankLine(id) }
+                refresh()
+            } catch (e: Exception) {
+                _state.value = _state.value.copy(error = e.message ?: "تعذّر الحذف")
+            }
+        }
+    }
+
+    /** تثبيت نتيجة المطابقة التلقائية في القاعدة (تُعاد الحسابات عند كل تحديث) */
+    fun reconcileBank() {
+        viewModelScope.launch {
+            try {
+                withContext(Dispatchers.IO) {
+                    val rows = dao.bankLines(company)
+                    val accounts = dao.accounts(company).associateBy { it.id }
+                    val bankAccountId = accounts.values.firstOrNull { it.code == Chart.Acc.BANK }?.id
+                    if (bankAccountId != null) {
+                        val book = dao.entries(company).mapIndexedNotNull { idx, e ->
+                            val delta = dao.linesOf(listOf(e.id))
+                                .filter { it.accountId == bankAccountId }
+                                .sumOf { it.debitMinor - it.creditMinor }
+                            if (delta == 0L) null else Banking.BookLine("$idx", e.date, e.description, delta)
+                        }
+                        val recon = Banking.autoMatch(
+                            rows.map { Banking.StatementLine(it.id, it.date, it.description, it.amountMinor) },
+                            book,
+                        )
+                        dao.clearBankMatches(company)
+                        recon.matches.forEach { dao.matchBankLine(it.statementId, it.bookId) }
+                    }
+                }
+                refresh()
+                _state.value = _state.value.copy(message = "تمت المطابقة وتثبيتها")
+            } catch (e: Exception) {
+                _state.value = _state.value.copy(error = e.message ?: "تعذّرت المطابقة")
+            }
+        }
+    }
+
+    // ── الفواتير الدورية ─────────────────────────────────────────
+    fun addSchedule(
+        title: String,
+        partyId: String?,
+        kind: String,
+        cycle: String,
+        startDate: String,
+        dayOfMonth: Int?,
+        productId: String,
+        productName: String,
+        qtyMilli: Long,
+        amount: String,
+        taxRate: String,
+        endDate: String? = null,
+        onDone: () -> Unit = {},
+    ) {
+        if (title.isBlank()) {
+            _state.value = _state.value.copy(error = "أدخل عنوان الجدول")
+            return
+        }
+        val minor = Money.parse(amount.ifBlank { "0" }, currency)
+        if (minor <= 0) {
+            _state.value = _state.value.copy(error = "أدخل مبلغاً صحيحاً")
+            return
+        }
+        viewModelScope.launch {
+            try {
+                withContext(Dispatchers.IO) {
+                    dao.upsertSchedule(
+                        ScheduleEntity(
+                            id = UUID.randomUUID().toString(),
+                            companyId = company,
+                            partyId = partyId,
+                            title = title,
+                            kind = kind,
+                            cycle = cycle,
+                            startDate = startDate.ifBlank { today() },
+                            endDate = endDate,
+                            dayOfMonth = dayOfMonth,
+                            productId = productId.ifBlank { "service" },
+                            productName = productName.ifBlank { title },
+                            qtyMilli = if (qtyMilli <= 0) 1_000 else qtyMilli,
+                            amountMinor = minor,
+                            taxRatePct = taxRate.ifBlank { "0" },
+                        ),
+                    )
+                }
+                onDone()
+                refresh()
+                _state.value = _state.value.copy(message = "أُضيف الجدول الدوري")
+            } catch (e: Exception) {
+                _state.value = _state.value.copy(error = e.message ?: "تعذّر إضافة الجدول")
+            }
+        }
+    }
+
+    /** تنفيذ كل الاستحقاقات المستحقة لجدول واحد — كل استحقاق = مستند مرحّل بقيده */
+    fun runSchedule(id: String) {
+        if (!Rbac.allows(_state.value.role, com.example.midad.core.Perm.SALE_EDIT)) {
+            _state.value = _state.value.copy(error = "لا تملك صلاحية إنشاء المستندات")
+            return
+        }
+        viewModelScope.launch {
+            _state.value = _state.value.copy(busy = true, error = null)
+            try {
+                val posted = withContext(Dispatchers.IO) {
+                    val raw = dao.schedules(company).firstOrNull { it.id == id } ?: return@withContext 0
+                    if (!raw.active) return@withContext 0
+                    val model = Recurring.Schedule(
+                        id = raw.id,
+                        partyId = raw.partyId ?: "",
+                        title = raw.title,
+                        cycle = runCatching { Recurring.Cycle.valueOf(raw.cycle) }
+                            .getOrDefault(Recurring.Cycle.MONTHLY),
+                        startDate = raw.startDate,
+                        endDate = raw.endDate,
+                        dayOfMonth = raw.dayOfMonth,
+                        amountMinor = raw.amountMinor,
+                        taxRatePct = raw.taxRatePct,
+                        lastRunDate = raw.lastRunDate,
+                        active = raw.active,
+                    )
+                    val due = Recurring.dueDates(model, today())
+                    var count = 0
+                    for (date in due) {
+                        val docId = UUID.randomUUID().toString()
+                        val number = dao.nextNumber(company, raw.kind, date.take(4))
+                        val inputs = listOf(
+                            PostingService.DocInput(
+                                productId = raw.productId,
+                                name = raw.productName,
+                                qtyMilli = raw.qtyMilli,
+                                unitPriceMinor = raw.amountMinor,
+                                discountPct = "0",
+                                taxRatePct = raw.taxRatePct,
+                                isService = true,
+                            ),
+                        )
+                        val result = if (raw.kind == "INV") {
+                            posting.recordInvoiceDoc(company, date, docId, inputs, "0", 0L)
+                        } else {
+                            posting.recordPurchaseDoc(company, date, docId, inputs, "0", 0L, cashPaidMinor = 0L)
+                        }
+                        val t = result.totals
+                        dao.insertDocument(
+                            DocumentEntity(
+                                id = docId,
+                                companyId = company,
+                                kind = raw.kind,
+                                number = number,
+                                partyId = raw.partyId,
+                                date = date,
+                                currency = currency,
+                                status = DocStatus.POSTED.code,
+                                grossMinor = t.gross,
+                                discountMinor = t.discount,
+                                netMinor = t.net,
+                                taxMinor = t.tax,
+                                roundingMinor = t.rounding,
+                                totalMinor = t.total,
+                                paidMinor = 0L,
+                                entryId = result.entry.id,
+                                note = "فاتورة دورية: ${raw.title}",
+                                createdBy = _state.value.userName,
+                            ),
+                        )
+                        dao.insertDocLines(
+                            t.lines.mapIndexed { i, lt ->
+                                DocumentLineEntity(
+                                    documentId = docId,
+                                    companyId = company,
+                                    lineNo = i + 1,
+                                    productId = lt.line.productId,
+                                    name = lt.line.name,
+                                    qtyMilli = lt.line.qtyMilli,
+                                    unitPriceMinor = lt.line.unitPriceMinor,
+                                    discountPct = lt.line.discountPct,
+                                    taxRatePct = lt.line.taxRatePct,
+                                    netMinor = lt.net,
+                                    taxMinor = lt.tax,
+                                    totalMinor = lt.total,
+                                    cogsMinor = 0L,
+                                )
+                            },
+                        )
+                        dao.markScheduleRun(raw.id, date)
+                        count++
+                    }
+                    count
+                }
+                refresh()
+                _state.value = _state.value.copy(
+                    busy = false,
+                    message = if (posted == 0) "لا استحقاقات جديدة" else "تم ترحيل $posted مستنداً دورياً",
+                )
+            } catch (e: Exception) {
+                _state.value = _state.value.copy(busy = false, error = e.message ?: "تعذّر تنفيذ الجدول")
+            }
+        }
+    }
+
+    fun toggleSchedule(id: String, active: Boolean) {
+        viewModelScope.launch {
+            try {
+                withContext(Dispatchers.IO) { dao.setScheduleActive(id, active) }
+                refresh()
+            } catch (e: Exception) {
+                _state.value = _state.value.copy(error = e.message ?: "تعذّر التحديث")
+            }
+        }
+    }
+
+    fun deleteSchedule(id: String) {
+        viewModelScope.launch {
+            try {
+                withContext(Dispatchers.IO) { dao.deleteSchedule(id) }
+                refresh()
+            } catch (e: Exception) {
+                _state.value = _state.value.copy(error = e.message ?: "تعذّر الحذف")
+            }
+        }
+    }
+
     fun refresh() {
         viewModelScope.launch {
             val s = withContext(Dispatchers.IO) { runCatching { compute() }.getOrElse { e -> UiState(ready = true, error = e.message) } }
@@ -1787,6 +2077,73 @@ class MidadViewModel(app: Application) : AndroidViewModel(app) {
         val settings = dao.settings().associate { it.key to it.value }
         val user = dao.users(company).firstOrNull()
 
+        // ── التسوية البنكية: كشف البنك مقابل حركة حساب البنك في الأستاذ ──
+        val bankRows = dao.bankLines(company)
+        val bankAccountId = accounts.entries.firstOrNull { it.value.code == Chart.Acc.BANK }?.key
+        val bookLines = if (bankAccountId == null) emptyList() else pairs.mapIndexedNotNull { idx, (req, lines) ->
+            val delta = lines.filter { it.accountId == bankAccountId }.sumOf { it.netBase() }
+            if (delta == 0L) null
+            else Banking.BookLine("$idx", req.date, req.description, delta)
+        }
+        val recon = Banking.autoMatch(
+            bankRows.map { Banking.StatementLine(it.id, it.date, it.description, it.amountMinor, it.reference) },
+            bookLines,
+        )
+        val bankLineRows = bankRows.map { row ->
+            val m = recon.matches.firstOrNull { it.statementId == row.id }
+            BankLineRow(
+                id = row.id,
+                date = row.date,
+                description = row.description,
+                amount = Money.format(row.amountMinor, currency),
+                matched = m != null,
+                matchedTo = row.matchedEntryId ?: (m?.bookId ?: ""),
+            )
+        }
+
+        // ── الفواتير الدورية: المستحق حتى اليوم ──
+        val scheduleModels = dao.schedules(company).map { sch ->
+            sch to Recurring.Schedule(
+                id = sch.id,
+                partyId = sch.partyId ?: "",
+                title = sch.title,
+                cycle = runCatching { Recurring.Cycle.valueOf(sch.cycle) }
+                    .getOrDefault(Recurring.Cycle.MONTHLY),
+                startDate = sch.startDate,
+                endDate = sch.endDate,
+                dayOfMonth = sch.dayOfMonth,
+                amountMinor = sch.amountMinor,
+                taxRatePct = sch.taxRatePct,
+                lastRunDate = sch.lastRunDate,
+                active = sch.active,
+            )
+        }
+        val scheduleRows = scheduleModels.map { (raw, model) ->
+            val due = runCatching { Recurring.dueDates(model, today()) }.getOrDefault(emptyList())
+            ScheduleRow(
+                id = raw.id,
+                title = raw.title,
+                partyName = partyRows.firstOrNull { it.id == raw.partyId }?.name ?: "—",
+                kindLabel = if (raw.kind == "INV") "مبيعات" else "مشتريات",
+                cycleLabel = when (model.cycle) {
+                    Recurring.Cycle.DAILY -> "يومي"
+                    Recurring.Cycle.WEEKLY -> "أسبوعي"
+                    Recurring.Cycle.MONTHLY -> "شهري"
+                    Recurring.Cycle.QUARTERLY -> "ربع سنوي"
+                    Recurring.Cycle.YEARLY -> "سنوي"
+                },
+                nextDate = due.firstOrNull() ?: "—",
+                dueCount = due.size,
+                amount = Money.format(raw.amountMinor, currency),
+                active = raw.active,
+            )
+        }
+        val dueTotal = scheduleModels.sumOf { (_, model) ->
+            runCatching {
+                Recurring.runPlan(model, today()).sumOf { it.totalMinor }
+            }.getOrDefault(0L)
+        }
+
         return UiState(
             ready = true,
             cash = Money.format(bal(Chart.Acc.CASH), currency),
@@ -1922,6 +2279,15 @@ class MidadViewModel(app: Application) : AndroidViewModel(app) {
             pinConfigured = user != null && settings["pin_set"] == "1",
             locked = _state.value.locked,
             paper = settings["paper"] ?: "A4",
+            bankLines = bankLineRows,
+            bankMatched = recon.matches.size,
+            bankUnmatched = recon.unmatchedStatement.size + recon.unmatchedBook.size,
+            bankDifference = Money.format(recon.differenceMinor, currency),
+            bankBalanced = recon.balanced,
+            bankHints = Banking.adjustmentHints(recon),
+            schedules = scheduleRows,
+            schedulesDue = scheduleRows.sumOf { it.dueCount },
+            schedulesDueValue = Money.format(dueTotal, currency),
         )
     }
 

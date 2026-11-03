@@ -351,3 +351,36 @@ data class TableEntity(
     val seats: Int = 4,
     val status: String = "FREE",
 )
+
+// ── كشف البنك (للتسوية) ────────────────────────────────────────
+@Entity(tableName = "bank_statement", indices = [Index("companyId", "date")])
+data class BankStatementLineEntity(
+    @PrimaryKey val id: String,
+    val companyId: String,
+    val date: String,
+    val description: String,
+    val amountMinor: Long,          // موجب = إيداع · سالب = سحب
+    val reference: String = "",
+    val matchedEntryId: String? = null,
+)
+
+// ── الفواتير الدورية (إيجار/اشتراك/عقد صيانة) ──────────────────
+@Entity(tableName = "doc_schedule", indices = [Index("companyId", "active")])
+data class ScheduleEntity(
+    @PrimaryKey val id: String,
+    val companyId: String,
+    val partyId: String? = null,
+    val title: String,
+    val kind: String = "INV",          // INV مبيعات · PINV مشتريات
+    val cycle: String = "MONTHLY",     // DAILY|WEEKLY|MONTHLY|QUARTERLY|YEARLY
+    val startDate: String,
+    val endDate: String? = null,
+    val dayOfMonth: Int? = null,
+    val productId: String,
+    val productName: String,
+    val qtyMilli: Long = 1000,
+    val amountMinor: Long,
+    val taxRatePct: String = "15",
+    val lastRunDate: String? = null,
+    val active: Boolean = true,
+)
