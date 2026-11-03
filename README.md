@@ -1,4 +1,10 @@
-# مِداد — تطبيق محاسبي منفرد
+# مِداد — تطبيق محاسبي عربي مستقل
+
+[![اختبارات وبناء](https://github.com/22kdx/midad-erp/actions/workflows/tests.yml/badge.svg)](https://github.com/22kdx/midad-erp/actions/workflows/tests.yml)
+
+> **تحميل التطبيق:** [midad-1.0.0-debug.apk](https://github.com/22kdx/midad-erp/releases/latest) — أندرويد ٨ (API 26) وأحدث.
+> البناء يجري ويُختبر تلقائياً على GitHub Actions: ١٥٢ اختبار نواة + APK جاهز في كل دفعة.
+
 
 تطبيق أندرويد محاسبي كامل، **مستقل تماماً**: لا خادم، لا ربط بأي مستودع، كل البيانات على الجهاز.
 
