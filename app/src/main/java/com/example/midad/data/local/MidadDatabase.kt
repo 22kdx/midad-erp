@@ -34,6 +34,48 @@ interface ErpDao {
     @Update
     fun updateCompany(row: CompanyEntity)
 
+    @Query("SELECT COUNT(*) FROM journal_line WHERE companyId = :c AND accountId = :accountId")
+    fun accountMovementCount(c: String, accountId: String): Int
+
+    @Query("UPDATE account SET name = :name WHERE companyId = :c AND id = :id")
+    fun renameAccount(c: String, id: String, name: String)
+
+    @Query("UPDATE account SET isActive = :active WHERE companyId = :c AND id = :id")
+    fun setAccountActive(c: String, id: String, active: Boolean)
+
+    @Query("SELECT * FROM company_currency WHERE companyId = :c ORDER BY code")
+    fun currencies(c: String): List<CompanyCurrencyEntity>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    fun upsertCurrency(row: CompanyCurrencyEntity)
+
+    @Query("DELETE FROM company_currency WHERE companyId = :c AND code = :code")
+    fun deleteCurrency(c: String, code: String)
+
+    @Query("SELECT * FROM fx_rate WHERE companyId = :c AND currency = :currency AND date <= :asOf ORDER BY date DESC LIMIT 1")
+    fun latestFxRate(c: String, currency: String, asOf: String): FxRateEntity?
+
+    @Query("SELECT * FROM fx_rate WHERE companyId = :c ORDER BY date DESC, currency")
+    fun fxRates(c: String): List<FxRateEntity>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    fun upsertFxRate(row: FxRateEntity)
+
+    @Query("SELECT * FROM cash_account WHERE companyId = :c ORDER BY isActive DESC, name")
+    fun cashAccounts(c: String): List<CashAccountEntity>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    fun upsertCashAccount(row: CashAccountEntity)
+
+    @Query("UPDATE cash_account SET isActive = :active WHERE companyId = :c AND id = :id")
+    fun setCashAccountActive(c: String, id: String, active: Boolean)
+
+    @Query("UPDATE cash_account SET defaultReceipt = 0 WHERE companyId = :c")
+    fun clearDefaultReceipt(c: String)
+
+    @Query("UPDATE cash_account SET defaultPayment = 0 WHERE companyId = :c")
+    fun clearDefaultPayment(c: String)
+
     // ── الفترات ───────────────────────────────────────
     @Query("SELECT status FROM period WHERE companyId = :c AND year = :y AND month = :m")
     fun periodStatus(c: String, y: Int, m: Int): String?
@@ -158,11 +200,11 @@ interface ErpDao {
     @Query("UPDATE app_user SET failedAttempts = :n, lockedUntil = :lockedUntil WHERE id = :id")
     fun updateUserLock(id: String, n: Int, lockedUntil: Long?)
 
-    @Query("SELECT * FROM app_setting WHERE settingKey = :key")
-    fun setting(key: String): SettingEntity?
+    @Query("SELECT * FROM app_setting WHERE companyId = :c AND settingKey = :key")
+    fun setting(c: String, key: String): SettingEntity?
 
-    @Query("SELECT * FROM app_setting")
-    fun settings(): List<SettingEntity>
+    @Query("SELECT * FROM app_setting WHERE companyId = :c")
+    fun settings(c: String): List<SettingEntity>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     fun upsertSetting(row: SettingEntity)
@@ -361,6 +403,7 @@ interface ErpDao {
 @Database(
     entities = [
         CompanyEntity::class, AccountEntity::class, PeriodEntity::class, SequenceEntity::class,
+        CompanyCurrencyEntity::class, FxRateEntity::class, CashAccountEntity::class,
         JournalEntryEntity::class, JournalLineEntity::class, ProductEntity::class, StockEntity::class,
         StockMovementEntity::class, AuditEntity::class, OutboxEntity::class,
         PartyEntity::class, DocumentEntity::class, DocumentLineEntity::class,
@@ -371,7 +414,7 @@ interface ErpDao {
         BankStatementLineEntity::class, ScheduleEntity::class, BudgetEntity::class,
         SerialEntity::class, AttachmentEntity::class,
     ],
-    version = 5,
+    version = 6,
     exportSchema = false,
 )
 abstract class MidadDatabase : RoomDatabase() {

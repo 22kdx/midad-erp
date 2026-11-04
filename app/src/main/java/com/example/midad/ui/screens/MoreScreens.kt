@@ -7,6 +7,7 @@ import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -208,7 +209,7 @@ fun ReportsScreen(vm: MidadViewModel, s: UiState) {
 fun SettingsScreen(vm: MidadViewModel, s: UiState) {
     val c = LocalMizan.current
     var tab by remember { mutableStateOf(0) }
-    val tabs = listOf("المنشأة", "الأمان", "المستخدمون", "السجل", "النسخ")
+    val tabs = listOf("المنشأة", "مالية", "الأمان", "المستخدمون", "السجل", "النسخ")
 
     ScreenScaffold("الإعدادات", "بياناتك على جهازك — نسخة مشفّرة تحميها") {
         ScrollableTabRow(selectedTabIndex = tab, edgePadding = 0.dp, containerColor = c.surface, divider = {}) {
@@ -219,9 +220,10 @@ fun SettingsScreen(vm: MidadViewModel, s: UiState) {
         Spacer(Modifier.height(10.dp))
         when (tab) {
             0 -> CompanyTab(vm, s)
-            1 -> SecurityTab(vm, s)
-            2 -> UsersTab(vm, s)
-            3 -> AuditTab(s)
+            1 -> FinanceSettingsTab(vm, s)
+            2 -> SecurityTab(vm, s)
+            3 -> UsersTab(vm, s)
+            4 -> AuditTab(s)
             else -> BackupTab(vm, s)
         }
     }
@@ -270,6 +272,161 @@ private fun CompanyTab(vm: MidadViewModel, s: UiState) {
         }
         Spacer(Modifier.height(20.dp))
     }
+}
+
+@Composable
+private fun FinanceSettingsTab(vm: MidadViewModel, s: UiState) {
+    val c = LocalMizan.current
+    var taxPct by remember(s.taxRatePct) { mutableStateOf(s.taxRatePct) }
+    var inclusive by remember(s.pricesTaxInclusive) { mutableStateOf(s.pricesTaxInclusive) }
+    var base by remember(s.currency) { mutableStateOf(s.currency) }
+    var outputTax by remember(s.outputTaxAccountId) { mutableStateOf(s.outputTaxAccountId) }
+    var inputTax by remember(s.inputTaxAccountId) { mutableStateOf(s.inputTaxAccountId) }
+    var code by remember { mutableStateOf("") }
+    var decimals by remember { mutableStateOf("2") }
+    var fxCurrency by remember { mutableStateOf(s.currencies.firstOrNull { !it.isBase }?.code.orEmpty()) }
+    var fxRate by remember { mutableStateOf("") }
+    var fxDate by remember { mutableStateOf(LocalDate.now().toString()) }
+    var showCash by remember { mutableStateOf(false) }
+    var editingCash by remember { mutableStateOf<com.example.midad.ui.CashAccountRowUi?>(null) }
+    var cashRename by remember { mutableStateOf("") }
+    var editingAccount by remember { mutableStateOf<com.example.midad.ui.ChartAccountRowUi?>(null) }
+    var rename by remember { mutableStateOf("") }
+
+    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        MizanCard {
+            SectionTitle("الضريبة والعملة الأساسية")
+            OutlinedTextField(taxPct, { taxPct = it }, label = { Text("نسبة الضريبة الافتراضية %") }, modifier = Modifier.fillMaxWidth(), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal), singleLine = true)
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
+                Text("الأسعار شاملة الضريبة", fontSize = 13.sp, color = c.text)
+                Switch(checked = inclusive, onCheckedChange = { inclusive = it })
+            }
+            Text("العملة الأساسية", fontSize = 12.sp, color = c.text2)
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                s.currencies.forEach { cur ->
+                    FilterChip(selected = base == cur.code, onClick = { base = cur.code }, label = { Text(cur.code) })
+                }
+            }
+            Text("حساب ضريبة المخرجات", fontSize = 12.sp, color = c.text2)
+            AccountSelector(s, outputTax) { outputTax = it }
+            Text("حساب ضريبة المدخلات", fontSize = 12.sp, color = c.text2)
+            AccountSelector(s, inputTax) { inputTax = it }
+            Button(onClick = { vm.saveFinancialSettings(taxPct, inclusive, outputTax, inputTax, base) }) { Text("حفظ إعدادات الضريبة") }
+        }
+
+        MizanCard {
+            SectionTitle("العملات والخانات العشرية")
+            s.currencies.forEach { cur ->
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
+                    Text("${cur.code} · ${cur.decimals} خانات" + if (cur.isBase) " · أساسية" else "", fontSize = 12.sp, color = c.text)
+                    if (!cur.isBase) TextButton(onClick = { vm.removeCurrency(cur.code) }) { Text("حذف") }
+                }
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                OutlinedTextField(code, { code = it.uppercase() }, label = { Text("رمز العملة") }, modifier = Modifier.weight(1f), singleLine = true)
+                OutlinedTextField(decimals, { decimals = it.filter(Char::isDigit).take(1) }, label = { Text("الخانات") }, modifier = Modifier.width(90.dp), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), singleLine = true)
+            }
+            Button(onClick = { vm.addCurrency(code, decimals.toIntOrNull() ?: 2); code = "" }) { Text("إضافة عملة") }
+        }
+
+        MizanCard {
+            SectionTitle("أسعار الصرف المؤرخة")
+            s.fxRates.forEach { rate -> Text("${rate.currency} · ${rate.rate} ${s.currency} · ${rate.date}", fontSize = 12.sp, color = c.text2) }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                s.currencies.filterNot { it.isBase }.forEach { cur ->
+                    FilterChip(selected = fxCurrency == cur.code, onClick = { fxCurrency = cur.code }, label = { Text(cur.code) })
+                }
+            }
+            OutlinedTextField(fxRate, { fxRate = it }, label = { Text("السعر مقابل ${s.currency} (حتى ٦ منازل)") }, modifier = Modifier.fillMaxWidth(), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal), singleLine = true)
+            OutlinedTextField(fxDate, { fxDate = it }, label = { Text("التاريخ YYYY-MM-DD") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
+            Button(onClick = { vm.saveFxRate(fxCurrency, fxRate, fxDate); fxRate = "" }) { Text("حفظ سعر الصرف") }
+            Text("يُستخدم أحدث سعر مؤرخ تلقائياً عند اختيار العملة في محرر الفاتورة.", fontSize = 11.sp, color = c.text3)
+        }
+
+        MizanCard {
+            SectionTitle("الصناديق والحسابات البنكية")
+            Button(onClick = { showCash = true }) { Text("إضافة صندوق / حساب بنكي") }
+            s.cashAccounts.forEach { account ->
+                Column(Modifier.fillMaxWidth().padding(vertical = 5.dp)) {
+                    Text("${account.name} · ${if (account.type == "BANK") "بنك" else "صندوق"} · ${account.currency}", fontSize = 13.sp, color = c.text)
+                    Text("${account.number.ifBlank { "بلا رقم" }} · رصيد افتتاحي ${account.opening}" + if (account.active) "" else " · معطّل", fontSize = 11.sp, color = c.text3)
+                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                        TextButton(onClick = { vm.setCashAccountDefault(account.id, true) }) { Text(if (account.defaultReceipt) "✓ افتراضي للقبض" else "افتراضي للقبض", fontSize = 10.sp) }
+                        TextButton(onClick = { vm.setCashAccountDefault(account.id, false) }) { Text(if (account.defaultPayment) "✓ افتراضي للصرف" else "افتراضي للصرف", fontSize = 10.sp) }
+                        TextButton(onClick = { editingCash = account; cashRename = account.name }) { Text("إعادة تسمية", fontSize = 10.sp) }
+                        TextButton(onClick = { if (account.active) vm.deactivateCashAccount(account.id) else vm.activateCashAccount(account.id) }) { Text(if (account.active) "تعطيل" else "تفعيل", fontSize = 10.sp) }
+                    }
+                    Divider()
+                }
+            }
+        }
+
+        MizanCard {
+            SectionTitle("دليل الحسابات")
+            s.chartAccounts.filter { it.active }.forEach { account ->
+                Row(Modifier.fillMaxWidth().clickable { editingAccount = account; rename = account.name }.padding(vertical = 6.dp), horizontalArrangement = Arrangement.SpaceBetween) {
+                    Column(Modifier.weight(1f)) {
+                        Text("${account.code} · ${account.name}", fontSize = 12.sp, color = c.text)
+                        Text(if (account.movements > 0) "${account.movements} حركة · لا يمكن التعطيل" else "بلا حركة", fontSize = 10.sp, color = c.text3)
+                    }
+                    Text("تعديل", fontSize = 11.sp, color = c.primary)
+                }
+            }
+        }
+        s.error?.let { Text(it, color = c.coral, fontSize = 12.sp) }
+        s.message?.let { Text(it, color = c.mint, fontSize = 12.sp) }
+        Spacer(Modifier.height(20.dp))
+    }
+
+    if (showCash) AddCashAccountDialog(vm, s) { showCash = false }
+    editingCash?.let { selected ->
+        AlertDialog(onDismissRequest = { editingCash = null }, title = { Text("إعادة تسمية ${selected.name}") },
+            text = { OutlinedTextField(cashRename, { cashRename = it }, label = { Text("الاسم") }, modifier = Modifier.fillMaxWidth()) },
+            confirmButton = { TextButton(onClick = { vm.renameCashAccount(selected.id, cashRename); editingCash = null }) { Text("حفظ") } },
+            dismissButton = { TextButton(onClick = { editingCash = null }) { Text("إلغاء") } })
+    }
+    editingAccount?.let { selected ->
+        AlertDialog(onDismissRequest = { editingAccount = null }, title = { Text("تعديل الحساب ${selected.code}") },
+            text = { OutlinedTextField(rename, { rename = it }, label = { Text("اسم الحساب") }, modifier = Modifier.fillMaxWidth()) },
+            confirmButton = { TextButton(onClick = { vm.updateChartAccount(selected.id, rename, false); editingAccount = null }) { Text("حفظ الاسم") } },
+            dismissButton = { Row {
+                TextButton(onClick = { vm.updateChartAccount(selected.id, rename, true); editingAccount = null }) { Text("تعطيل") }
+                TextButton(onClick = { editingAccount = null }) { Text("إغلاق") }
+            } })
+    }
+}
+
+@Composable
+private fun AccountSelector(s: UiState, selected: String, onSelect: (String) -> Unit) {
+    val options = s.chartAccounts.filter { it.active && it.code.startsWith("22") }
+    Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())) {
+        options.forEach { account ->
+            FilterChip(selected = selected == account.id, onClick = { onSelect(account.id) }, label = { Text("${account.code} ${account.name}", fontSize = 10.sp) }, modifier = Modifier.padding(end = 4.dp))
+        }
+    }
+}
+
+@Composable
+private fun AddCashAccountDialog(vm: MidadViewModel, s: UiState, onClose: () -> Unit) {
+    val c = LocalMizan.current
+    var name by remember { mutableStateOf("") }
+    var number by remember { mutableStateOf("") }
+    var currency by remember { mutableStateOf(s.currency) }
+    var opening by remember { mutableStateOf("0") }
+    var bank by remember { mutableStateOf(false) }
+    var receipt by remember { mutableStateOf(false) }
+    var payment by remember { mutableStateOf(false) }
+    AlertDialog(onDismissRequest = onClose, title = { Text("إضافة حساب مالي") }, text = {
+        Column(Modifier.heightIn(max = 400.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            OutlinedTextField(name, { name = it }, label = { Text("الاسم") }, modifier = Modifier.fillMaxWidth())
+            Row { FilterChip(selected = !bank, onClick = { bank = false }, label = { Text("صندوق") }); Spacer(Modifier.width(8.dp)); FilterChip(selected = bank, onClick = { bank = true }, label = { Text("حساب بنكي") }) }
+            OutlinedTextField(number, { number = it }, label = { Text("رقم الحساب / IBAN") }, modifier = Modifier.fillMaxWidth())
+            Row { s.currencies.forEach { cur -> FilterChip(selected = currency == cur.code, onClick = { currency = cur.code }, label = { Text(cur.code) }) } }
+            OutlinedTextField(opening, { opening = it }, label = { Text("الرصيد الافتتاحي") }, modifier = Modifier.fillMaxWidth(), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal))
+            Row { Checkbox(receipt, { receipt = it }); Text("افتراضي للقبض", Modifier.align(Alignment.CenterVertically)); Checkbox(payment, { payment = it }); Text("افتراضي للصرف", Modifier.align(Alignment.CenterVertically)) }
+            s.error?.let { Text(it, color = c.coral, fontSize = 11.sp) }
+        }
+    }, confirmButton = { TextButton(onClick = { vm.addCashAccount(name, if (bank) "BANK" else "CASH", number, currency, opening, receipt, payment); onClose() }) { Text("حفظ") } }, dismissButton = { TextButton(onClick = onClose) { Text("إلغاء") } })
 }
 
 @Composable

@@ -184,7 +184,7 @@ object Recurring {
         val endDate: String? = null,
         val dayOfMonth: Int? = null,          // ٣١ ⇒ يُقصّ لآخر يوم في الشهر
         val amountMinor: Long,
-        val taxRatePct: String = "15",
+        val taxRatePct: String = "0",
         val lastRunDate: String? = null,
         val active: Boolean = true,
     )

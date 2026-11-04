@@ -70,25 +70,32 @@ object TaxReturn {
         from: String,
         to: String,
         currency: String = "YER",
+        taxRatePct: String = "0",
+        outputTaxAccountId: String? = null,
+        inputTaxAccountId: String? = null,
     ): VatReturn {
         fun codeOf(id: String) = accounts[id]?.code
         val scoped = entries.filter { (r, _) -> r.date in from..to }
-        fun net(code: String): Long = scoped.sumOf { (_, lines) ->
-            lines.filter { codeOf(it.accountId) == code }.sumOf { it.debit - it.credit }
+        fun net(code: String, configuredId: String? = null): Long = scoped.sumOf { (_, lines) ->
+            lines.filter { it.accountId == configuredId || (configuredId == null && codeOf(it.accountId) == code) }
+                .sumOf { it.debit - it.credit }
         }
         // الإيراد سالب في الميزان ⇒ نأخذ القيمة المطلقة كأساس
         val salesBase = -net(Chart.Acc.SALES)
         val creditBase = net(Chart.Acc.SALES_RETURN)
-        val outputTax = -net(Chart.Acc.VAT_OUT)          // الرصيد الدائن
+        val outputTax = -net(Chart.Acc.VAT_OUT, outputTaxAccountId) // الرصيد الدائن
         val purchasesBase = net(Chart.Acc.INVENTORY)      // تبسيط: تكلفة المشتريات = حركة المخزون المدينة
-        val inputTax = net(Chart.Acc.VAT_IN)
+        val inputTax = net(Chart.Acc.VAT_IN, inputTaxAccountId)
+        val creditNoteTax = if (outputTaxAccountId != null) scoped.sumOf { (_, lines) ->
+            lines.filter { it.accountId == outputTaxAccountId }.sumOf { it.debit }
+        } else Money.percent(creditBase, taxRatePct)
 
         return build(
             from = from, to = to,
             salesBase = salesBase,
             outputTax = outputTax,
             creditNoteBase = creditBase,
-            creditNoteTax = Money.percent(creditBase, "15"),
+            creditNoteTax = creditNoteTax,
             purchasesBase = purchasesBase.coerceAtLeast(0L),
             inputTax = inputTax,
             currency = currency,

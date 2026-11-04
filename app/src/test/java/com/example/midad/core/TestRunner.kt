@@ -76,9 +76,16 @@ fun main() {
         eq(Money.percent(10_000, "15"), 1500L)
         eq(Money.percent(333, "15"), 50L)
     }
+    check("السعر الشامل للضريبة ودقة العملة القابلة للتهيئة") {
+        eq(Money.exclusiveOfInclusiveTax(Money.parse("115"), "15"), Money.parse("100"), "استخراج الصافي من السعر الشامل:")
+        Money.configureDecimals("TST", 3)
+        eq(Money.parse("1.234", "TST"), 1234L, "دقة ٣ خانات:")
+        eq(Money.format(1234L, "TST"), "1.234", "تنسيق العملة:")
+    }
     check("تحويل العملة") {
         eq(Money.convert(10_000, "250", "USD", "YER"), 2_500_000L) // 100$ × 250 = 25000 ريال
         eq(Money.convert(10_000, "260", "USD", "YER"), 2_600_000L)
+        eq(Money.convert(100, "1.234567", "USD", "YER"), 123L, "سعر صرف بدقة ستة منازل:")
     }
 
     // ── القبول ────────────────────────────────────────────────

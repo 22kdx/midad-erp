@@ -9,12 +9,26 @@ import java.math.RoundingMode
  */
 object Money {
 
-    private val DECIMALS = mapOf(
-        "YER" to 2, "SAR" to 2, "AED" to 2, "USD" to 2, "EUR" to 2, "EGP" to 2, "SDG" to 2,
-        "OMR" to 3, "KWD" to 3, "BHD" to 3,
+    private val DECIMALS = java.util.concurrent.ConcurrentHashMap(
+        mapOf("YER" to 2, "SAR" to 2, "AED" to 2, "USD" to 2, "EUR" to 2, "EGP" to 2, "SDG" to 2,
+            "OMR" to 3, "KWD" to 3, "BHD" to 3),
     )
 
     fun decimals(currency: String): Int = DECIMALS[currency] ?: 2
+
+    /** Configurable precision for locally-defined company currencies. */
+    fun configureDecimals(currency: String, decimals: Int) {
+        require(currency.matches(Regex("[A-Z]{3,5}")) && decimals in 0..4)
+        DECIMALS[currency] = decimals
+    }
+
+    /** Turn a tax-inclusive unit amount into its net amount, preserving minor units. */
+    fun exclusiveOfInclusiveTax(minor: Long, ratePct: String): Long {
+        val rate = parse(ratePct, "XXX")
+        require(rate >= 0L)
+        return BigDecimal.valueOf(minor).multiply(BigDecimal.valueOf(10_000L))
+            .divide(BigDecimal.valueOf(10_000L + rate), 0, RoundingMode.HALF_UP).toLong()
+    }
 
     /** "12.34" + YER  ->  1234 */
     fun parse(value: String, currency: String = "YER"): Long {
@@ -53,11 +67,12 @@ object Money {
      * convert(10000 = 100.00 USD, "250", "USD", "YER") = 250000 = 2500.00 YER
      */
     fun convert(minor: Long, fxRate: String, fromCur: String, toCur: String): Long {
-        val rateMinor = parse(fxRate, "XXX")
+        val rateMicros = BigDecimal(fxRate.trim()).setScale(6, RoundingMode.HALF_UP)
+            .movePointRight(6).longValueExact()
         val numerator = BigDecimal.valueOf(minor)
-            .multiply(BigDecimal.valueOf(rateMinor))
+            .multiply(BigDecimal.valueOf(rateMicros))
             .multiply(BigDecimal.TEN.pow(decimals(toCur)))
-        val denominator = BigDecimal.TEN.pow(decimals(fromCur) + 2)
+        val denominator = BigDecimal.TEN.pow(decimals(fromCur) + 6)
         return numerator.divide(denominator, 0, RoundingMode.HALF_UP).toLong()
     }
 

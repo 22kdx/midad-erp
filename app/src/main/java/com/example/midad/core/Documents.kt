@@ -214,16 +214,18 @@ object DocPosting {
         pay: Settlement,
         currency: String? = null,
         fxRate: String = "1",
+        outputTaxAccountId: String? = null,
+        settlementAccountId: String? = null,
     ): Pair<List<JournalLine>, SaleTotals> {
         val credit = t.total - pay.cashMinor - pay.cardMinor
         if (credit < 0) throw AccountingException("OVERPAID", "المدفوع أكبر من إجمالي الفاتورة")
         val out = ArrayList<JournalLine>(10)
-        if (pay.cashMinor > 0) out += line(book.id(Chart.Acc.CASH), debit = pay.cashMinor, note = "نقداً", currency = currency, fxRate = fxRate)
+        if (pay.cashMinor > 0) out += line(settlementAccountId ?: book.id(Chart.Acc.CASH), debit = pay.cashMinor, note = "نقداً", currency = currency, fxRate = fxRate)
         if (pay.cardMinor > 0) out += line(book.id(Chart.Acc.BANK), debit = pay.cardMinor, note = "شبكة/بنك", currency = currency, fxRate = fxRate)
         if (credit > 0) out += line(book.id(Chart.Acc.AR), debit = credit, note = "آجل", currency = currency, fxRate = fxRate)
         out += line(book.id(Chart.Acc.SALES), credit = t.gross, note = "إيراد المبيعات", currency = currency, fxRate = fxRate)
         if (t.discount > 0) out += line(book.id(Chart.Acc.SALES_DISCOUNT), debit = t.discount, note = "خصم مبيعات", currency = currency, fxRate = fxRate)
-        if (t.tax > 0) out += line(book.id(Chart.Acc.VAT_OUT), credit = t.tax, note = "ضريبة مخرجات", currency = currency, fxRate = fxRate)
+        if (t.tax > 0) out += line(outputTaxAccountId ?: book.id(Chart.Acc.VAT_OUT), credit = t.tax, note = "ضريبة مخرجات", currency = currency, fxRate = fxRate)
         out += roundingLine(book, t.rounding, currency, fxRate)
         if (t.cogs > 0) {
             out += JournalLine(book.id(Chart.Acc.COGS), debit = t.cogs, note = "تكلفة المبيعات")
@@ -239,12 +241,14 @@ object DocPosting {
         refundCreditMinor: Long = 0L,
         currency: String? = null,
         fxRate: String = "1",
+        outputTaxAccountId: String? = null,
+        settlementAccountId: String? = null,
     ): Pair<List<JournalLine>, SaleTotals> {
         val out = ArrayList<JournalLine>(10)
         out += line(book.id(Chart.Acc.SALES_RETURN), debit = t.gross, note = "مردودات مبيعات", currency = currency, fxRate = fxRate)
         if (t.discount > 0) out += line(book.id(Chart.Acc.SALES_DISCOUNT), credit = t.discount, note = "عكس خصم", currency = currency, fxRate = fxRate)
-        if (t.tax > 0) out += line(book.id(Chart.Acc.VAT_OUT), debit = t.tax, note = "عكس ضريبة مخرجات", currency = currency, fxRate = fxRate)
-        if (refundCashMinor > 0) out += line(book.id(Chart.Acc.CASH), credit = refundCashMinor, note = "رد نقدي", currency = currency, fxRate = fxRate)
+        if (t.tax > 0) out += line(outputTaxAccountId ?: book.id(Chart.Acc.VAT_OUT), debit = t.tax, note = "عكس ضريبة مخرجات", currency = currency, fxRate = fxRate)
+        if (refundCashMinor > 0) out += line(settlementAccountId ?: book.id(Chart.Acc.CASH), credit = refundCashMinor, note = "رد نقدي", currency = currency, fxRate = fxRate)
         if (refundCreditMinor > 0) out += line(book.id(Chart.Acc.AR), credit = refundCreditMinor, note = "تخفيض ذمة", currency = currency, fxRate = fxRate)
         out += roundingLine(book, -t.rounding, currency, fxRate)
         if (t.cogs > 0) {
@@ -261,15 +265,17 @@ object DocPosting {
         landedCostMinor: Long = 0L,
         currency: String? = null,
         fxRate: String = "1",
+        inputTaxAccountId: String? = null,
+        settlementAccountId: String? = null,
     ): Pair<List<JournalLine>, Rules.PurchaseTotals> {
         val invValue = t.net            // يشمل مصاريف الوصول (أُضيفت داخل net)
         val credit = t.total - cashPaidMinor
         if (credit < 0) throw AccountingException("OVERPAID", "المدفوع أكبر من إجمالي الفاتورة")
         val out = ArrayList<JournalLine>(6)
         out += line(book.id(Chart.Acc.INVENTORY), debit = invValue, note = if (landedCostMinor > 0) "مخزون + مصاريف وصول" else "مخزون", currency = currency, fxRate = fxRate)
-        if (t.tax > 0) out += line(book.id(Chart.Acc.VAT_IN), debit = t.tax, note = "ضريبة مدخلات", currency = currency, fxRate = fxRate)
+        if (t.tax > 0) out += line(inputTaxAccountId ?: book.id(Chart.Acc.VAT_IN), debit = t.tax, note = "ضريبة مدخلات", currency = currency, fxRate = fxRate)
         out += roundingLine(book, t.rounding, currency, fxRate)
-        if (cashPaidMinor > 0) out += line(book.id(Chart.Acc.CASH), credit = cashPaidMinor, note = "دفع نقدي", currency = currency, fxRate = fxRate)
+        if (cashPaidMinor > 0) out += line(settlementAccountId ?: book.id(Chart.Acc.CASH), credit = cashPaidMinor, note = "دفع نقدي", currency = currency, fxRate = fxRate)
         if (credit > 0) out += line(book.id(Chart.Acc.AP), credit = credit, note = "ذمة المورد", currency = currency, fxRate = fxRate)
         return out to Rules.PurchaseTotals(t.net, t.tax, landedCostMinor, t.total, credit)
     }
@@ -280,13 +286,15 @@ object DocPosting {
         refundCashMinor: Long = 0L,
         currency: String? = null,
         fxRate: String = "1",
+        inputTaxAccountId: String? = null,
+        settlementAccountId: String? = null,
     ): Pair<List<JournalLine>, Rules.PurchaseTotals> {
         val refundCredit = t.total - refundCashMinor
         val out = ArrayList<JournalLine>(6)
         out += line(book.id(Chart.Acc.AP), debit = refundCredit, note = "تخفيض ذمة المورد", currency = currency, fxRate = fxRate)
-        if (refundCashMinor > 0) out += line(book.id(Chart.Acc.CASH), debit = refundCashMinor, note = "استرداد نقدي", currency = currency, fxRate = fxRate)
+        if (refundCashMinor > 0) out += line(settlementAccountId ?: book.id(Chart.Acc.CASH), debit = refundCashMinor, note = "استرداد نقدي", currency = currency, fxRate = fxRate)
         out += line(book.id(Chart.Acc.INVENTORY), credit = t.net, note = "إخراج من المخزون", currency = currency, fxRate = fxRate)
-        if (t.tax > 0) out += line(book.id(Chart.Acc.VAT_IN), credit = t.tax, note = "عكس ضريبة مدخلات", currency = currency, fxRate = fxRate)
+        if (t.tax > 0) out += line(inputTaxAccountId ?: book.id(Chart.Acc.VAT_IN), credit = t.tax, note = "عكس ضريبة مدخلات", currency = currency, fxRate = fxRate)
         out += roundingLine(book, -t.rounding, currency, fxRate)
         return out to Rules.PurchaseTotals(t.net, t.tax, 0L, t.total, -refundCredit)
     }

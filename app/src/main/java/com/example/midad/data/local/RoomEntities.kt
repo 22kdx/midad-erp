@@ -15,9 +15,14 @@ data class CompanyEntity(
     @PrimaryKey val id: String,
     val name: String,
     val functionalCurrency: String,
-    val currenciesCsv: String,      // "YER,USD"
+    val currenciesCsv: String,      // رموز العملات المسموح بها
+    @ColumnInfo(defaultValue = "2") val functionalCurrencyDecimals: Int = 2,
     val lockDate: String? = null,
     val taxNumber: String? = null,
+    @ColumnInfo(defaultValue = "'0'") val defaultTaxRatePct: String = "0",
+    @ColumnInfo(defaultValue = "0") val pricesTaxInclusive: Boolean = false,
+    val outputTaxAccountId: String? = null,
+    val inputTaxAccountId: String? = null,
 )
 
 @Entity(tableName = "account", indices = [Index("companyId", "code", unique = true)])
@@ -149,6 +154,41 @@ data class OutboxEntity(
     val createdAt: Long = System.currentTimeMillis(),
 )
 
+
+/** عملة منشأة إضافية ودقتها العشرية. */
+@Entity(tableName = "company_currency", primaryKeys = ["companyId", "code"])
+data class CompanyCurrencyEntity(
+    val companyId: String,
+    val code: String,
+    val decimalPlaces: Int = 2,
+)
+
+/** سعر صرف مؤرخ؛ rateMicros = وحدات العملة الأساسية × 10^6 لكل وحدة أجنبية. */
+@Entity(tableName = "fx_rate", indices = [Index("companyId", "currency", "date")])
+data class FxRateEntity(
+    @PrimaryKey val id: String,
+    val companyId: String,
+    val currency: String,
+    val rateMicros: Long,
+    val date: String,
+)
+
+/** صندوق أو حساب بنكي محلي مربوط بحساب الأستاذ العام. */
+@Entity(tableName = "cash_account", indices = [Index("companyId", "isActive"), Index("companyId", "ledgerAccountId", unique = true)])
+data class CashAccountEntity(
+    @PrimaryKey val id: String,
+    val companyId: String,
+    val name: String,
+    val type: String,
+    val accountNumber: String = "",
+    val currency: String,
+    val openingBalanceMinor: Long = 0L,
+    val ledgerAccountId: String,
+    val isActive: Boolean = true,
+    val defaultReceipt: Boolean = false,
+    val defaultPayment: Boolean = false,
+)
+
 // ── الأطراف (عملاء وموردون) ─────────────────────────────────────
 @Entity(tableName = "party", indices = [Index("companyId", "kind"), Index("companyId", "phone")])
 data class PartyEntity(
@@ -228,9 +268,10 @@ data class UserEntity(
     val createdAt: Long = System.currentTimeMillis(),
 )
 
-@Entity(tableName = "app_setting")
+@Entity(tableName = "app_setting", primaryKeys = ["companyId", "settingKey"])
 data class SettingEntity(
-    @PrimaryKey @ColumnInfo(name = "settingKey") val key: String,
+    val companyId: String,
+    @ColumnInfo(name = "settingKey") val key: String,
     val value: String,
 )
 
@@ -380,7 +421,7 @@ data class ScheduleEntity(
     val productName: String,
     val qtyMilli: Long = 1000,
     val amountMinor: Long,
-    val taxRatePct: String = "15",
+    val taxRatePct: String = "0",
     val lastRunDate: String? = null,
     val active: Boolean = true,
 )
