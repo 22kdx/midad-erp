@@ -63,7 +63,14 @@ jobs:
       - name: ترجمة APK
         run: |
           chmod +x gradlew
-          ./gradlew --no-daemon --stacktrace assembleDebug
+          if ! ./gradlew --no-daemon --stacktrace assembleDebug > gradle-build.log 2>&1; then
+            cat gradle-build.log
+            grep -E '^(e:|.*error:|FAILURE:|\* What went wrong:)' gradle-build.log | while IFS= read -r line; do
+              echo "::error::$line"
+            done
+            exit 1
+          fi
+          cat gradle-build.log
       - uses: actions/upload-artifact@v4
         with:
           name: midad-debug-apk
