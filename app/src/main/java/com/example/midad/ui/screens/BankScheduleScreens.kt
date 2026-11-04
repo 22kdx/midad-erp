@@ -254,7 +254,7 @@ private fun ScheduleForm(vm: MidadViewModel, s: UiState, onDone: () -> Unit) {
     val c = LocalMizan.current
     var title by remember { mutableStateOf("") }
     var amount by remember { mutableStateOf("") }
-    var tax by remember { mutableStateOf("15") }
+    var tax by remember(s.taxRatePct) { mutableStateOf(s.taxRatePct) }
     var startDate by remember { mutableStateOf("") }
     var dayOfMonth by remember { mutableStateOf("") }
     var cycle by remember { mutableStateOf("MONTHLY") }

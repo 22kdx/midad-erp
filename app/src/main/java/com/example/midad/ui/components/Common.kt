@@ -23,9 +23,9 @@ fun MizanCard(
     Column(
         modifier = modifier
             .fillMaxWidth()
-            .background(c.surface, RoundedCornerShape(16.dp))
-            .border(1.dp, c.stroke, RoundedCornerShape(16.dp))
-            .padding(16.dp),
+            .background(c.surface, RoundedCornerShape(20.dp))
+            .border(1.dp, c.stroke, RoundedCornerShape(20.dp))
+            .padding(18.dp),
         content = content,
     )
 }

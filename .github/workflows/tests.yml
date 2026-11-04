@@ -2,13 +2,27 @@ name: اختبارات وبناء
 
 on:
   push:
-    branches: [ main ]
+    branches: [ main, arena/5570fe9e-midad-erp ]
   pull_request:
   workflow_dispatch:
+    inputs:
+      publish_release:
+        description: نشر APK على GitHub Releases بعد نجاح الاختبارات والبناء
+        required: false
+        default: false
+        type: boolean
+      release_tag:
+        description: وسم الإصدار
+        required: false
+        default: v1.0.5
+        type: string
+
+permissions:
+  contents: read
 
 jobs:
   core-tests:
-    name: اختبارات النواة (١٥٢ اختباراً)
+    name: اختبارات النواة (١٦٠ اختباراً)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -49,9 +63,44 @@ jobs:
       - name: ترجمة APK
         run: |
           chmod +x gradlew
-          ./gradlew --no-daemon --stacktrace assembleDebug
+          if ! ./gradlew --no-daemon --stacktrace assembleDebug > gradle-build.log 2>&1; then
+            cat gradle-build.log
+            grep -E '^(e:|.*error:|FAILURE:|\* What went wrong:)' gradle-build.log | while IFS= read -r line; do
+              echo "::error::$line"
+            done
+            exit 1
+          fi
+          cat gradle-build.log
       - uses: actions/upload-artifact@v4
         with:
           name: midad-debug-apk
           path: app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
+
+  release:
+    name: نشر APK في Releases
+    permissions:
+      contents: write
+    runs-on: ubuntu-latest
+    needs: [core-tests, apk]
+    if: (github.event_name == 'workflow_dispatch' && inputs.publish_release) || (github.event_name == 'push' && contains(github.event.head_commit.message, '[publish-release]'))
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: midad-debug-apk
+          path: release-assets
+      - name: تجهيز ورفع الإصدار
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          set -euo pipefail
+          VERSION="$(grep -oE 'versionName = "[^"]+"' app/build.gradle.kts | cut -d '"' -f 2)"
+          test -n "$VERSION"
+          TAG="${RELEASE_TAG:-v$VERSION}"
+          APK="$(find release-assets -maxdepth 2 -type f -name '*.apk' -print -quit)"
+          test -n "$APK"
+          APK_NAME="tamm-${VERSION}-debug.apk"
+          cp "$APK" "$APK_NAME"
+          gh release create "$TAG" "$APK_NAME" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "TAMM $VERSION" --notes "واجهة TAMM المحسّنة. اجتازت اختبارات النواة وبناء APK على CI."

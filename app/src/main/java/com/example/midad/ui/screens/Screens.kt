@@ -2,6 +2,7 @@ package com.example.midad.ui.screens
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -117,13 +118,19 @@ fun DocEditorDialog(
     var note by remember { mutableStateOf("") }
     var docCurrency by remember { mutableStateOf(s.currency) }
     var fxRate by remember { mutableStateOf("1") }
+    val defaultSettlement = remember(s.cashAccounts, kind) {
+        val receipt = kind == DocKind.INVOICE || kind == DocKind.PURCHASE_RETURN
+        s.cashAccounts.firstOrNull { it.active && if (receipt) it.defaultReceipt else it.defaultPayment }
+            ?: s.cashAccounts.firstOrNull { it.active }
+    }
+    var settlementLedgerId by remember(s.cashAccounts, kind) { mutableStateOf(defaultSettlement?.ledgerAccountId.orEmpty()) }
 
     // بند جديد
     var itemId by remember { mutableStateOf(s.items.firstOrNull()?.id ?: "") }
     var qty by remember { mutableStateOf("1") }
     var price by remember { mutableStateOf(s.items.firstOrNull()?.price ?: "") }
     var lineDiscount by remember { mutableStateOf("0") }
-    var taxPct by remember { mutableStateOf("15") }
+    var taxPct by remember(s.taxRatePct) { mutableStateOf(s.taxRatePct) }
 
     val total = remember(lines.toList(), invoiceDiscount) {
         runCatching {
@@ -131,7 +138,7 @@ fun DocEditorDialog(
                 lines.map {
                     com.example.midad.core.DocLine(
                         it.productId, it.name, (it.qty * 1000).toLong(),
-                        Money.parse(it.price.ifBlank { "0" }), it.discountPct, it.taxPct, 0L,
+                        Money.parse(if (s.pricesTaxInclusive && !asQuote && kind != DocKind.PURCHASE_ORDER) Money.format(Money.exclusiveOfInclusiveTax(Money.parse(it.price.ifBlank { "0" }, docCurrency), it.taxPct), docCurrency) else it.price.ifBlank { "0" }, docCurrency), it.discountPct, it.taxPct, 0L,
                     )
                 },
                 invoiceDiscount.ifBlank { "0" },
@@ -221,18 +228,23 @@ fun DocEditorDialog(
                 Divider(color = c.stroke, modifier = Modifier.padding(vertical = 4.dp))
                 Text("العملة", fontSize = 12.sp, color = c.text2)
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    listOf(s.currency, "USD", "SAR").distinct().forEach { cur ->
+                    s.currencies.forEach { currencyRow ->
+                        val cur = currencyRow.code
                         Text(
                             cur,
                             fontSize = 11.sp,
                             color = if (docCurrency == cur) c.primary else c.text2,
                             modifier = Modifier
                                 .background(if (docCurrency == cur) c.primary.copy(alpha = 0.12f) else c.surface2, RoundedCornerShape(8.dp))
-                                .clickable { docCurrency = cur }
+                                .clickable {
+                                    docCurrency = cur
+                                    fxRate = if (cur == s.currency) "1" else s.fxRates.firstOrNull { it.currency == cur }?.rate ?: "1"
+                                }
                                 .padding(horizontal = 12.dp, vertical = 6.dp),
                         )
                     }
                 }
+                if (s.pricesTaxInclusive && !asQuote && kind != DocKind.PURCHASE_ORDER) Text("الأسعار المدخلة شاملة الضريبة", fontSize = 11.sp, color = c.primary)
                 if (docCurrency != s.currency) {
                     OutlinedTextField(
                         fxRate, { fxRate = it },
@@ -243,6 +255,14 @@ fun DocEditorDialog(
                 }
                 OutlinedTextField(invoiceDiscount, { invoiceDiscount = it }, label = { Text("خصم على المستند %") }, modifier = Modifier.fillMaxWidth(), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal))
                 OutlinedTextField(paid, { paid = it }, label = { Text("المدفوع (اتركه فارغاً للآجل)") }, modifier = Modifier.fillMaxWidth(), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal))
+                if (!asQuote && paid.isNotBlank()) {
+                    Text(if (kind == DocKind.INVOICE || kind == DocKind.PURCHASE_RETURN) "حساب القبض" else "حساب الصرف", fontSize = 11.sp, color = c.text2)
+                    Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        s.cashAccounts.filter { it.active }.forEach { account ->
+                            FilterChip(selected = settlementLedgerId == account.ledgerAccountId, onClick = { settlementLedgerId = account.ledgerAccountId }, label = { Text("${account.name} · ${account.currency}") })
+                        }
+                    }
+                }
                 OutlinedTextField(note, { note = it }, label = { Text("ملاحظات") }, modifier = Modifier.fillMaxWidth())
 
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
@@ -270,6 +290,7 @@ fun DocEditorDialog(
                             kind, partyId.ifBlank { null }, lines.toList(), invoiceDiscount, paid, note,
                             currencyCode = cur,
                             fxRate = if (cur == null) "1" else fxRate.ifBlank { "1" },
+                            settlementAccountId = settlementLedgerId.ifBlank { null },
                         ) { onClose() }
                     }
                 },

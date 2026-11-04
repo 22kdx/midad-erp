@@ -117,7 +117,7 @@ class ReminderWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(c
         val company = MidadApp.COMPANY_ID
         val today = LocalDate.now().toString()
 
-        val settings = withContext(Dispatchers.IO) { dao.settings().associate { it.key to it.value } }
+        val settings = withContext(Dispatchers.IO) { dao.settings(company).associate { it.key to it.value } }
         if (settings["reminders"] == "0") return Result.success()
 
         val cheques = withContext(Dispatchers.IO) { dao.cheques(company) }

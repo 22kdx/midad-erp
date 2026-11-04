@@ -77,6 +77,9 @@ import com.example.midad.data.local.WarehouseEntity
 import com.example.midad.data.local.EmployeeEntity
 import com.example.midad.data.local.ChequeEntity
 import com.example.midad.data.local.CompanyEntity
+import com.example.midad.data.local.CompanyCurrencyEntity
+import com.example.midad.data.local.FxRateEntity
+import com.example.midad.data.local.CashAccountEntity
 import com.example.midad.data.local.DocumentEntity
 import com.example.midad.data.local.DocumentLineEntity
 import com.example.midad.data.local.JournalEntryEntity
@@ -101,6 +104,11 @@ import java.time.LocalDate
 import java.util.UUID
 
 // ── نماذج العرض ─────────────────────────────────────────────────
+data class CurrencyRowUi(val code: String, val decimals: Int, val isBase: Boolean)
+data class FxRateRowUi(val currency: String, val rate: String, val date: String)
+data class CashAccountRowUi(val id: String, val name: String, val type: String, val number: String, val currency: String, val opening: String, val active: Boolean, val defaultReceipt: Boolean, val defaultPayment: Boolean, val ledgerAccountId: String)
+data class ChartAccountRowUi(val id: String, val code: String, val name: String, val active: Boolean, val movements: Int)
+
 data class StockRow(val id: String, val name: String, val qty: Double, val avgCost: String, val value: String, val low: Boolean = false)
 
 data class EntryRow(val id: String, val number: String, val date: String, val description: String, val amount: String, val status: String)
@@ -339,6 +347,14 @@ data class UiState(
     val companyName: String = "مؤسستي",
     val companyTax: String = "",
     val currency: String = "YER",
+    val taxRatePct: String = "0",
+    val pricesTaxInclusive: Boolean = false,
+    val outputTaxAccountId: String = "",
+    val inputTaxAccountId: String = "",
+    val currencies: List<CurrencyRowUi> = emptyList(),
+    val fxRates: List<FxRateRowUi> = emptyList(),
+    val cashAccounts: List<CashAccountRowUi> = emptyList(),
+    val chartAccounts: List<ChartAccountRowUi> = emptyList(),
     val userName: String = "",
     val userPhone: String = "",
     val role: Role = Role.OWNER,
@@ -387,7 +403,7 @@ class MidadViewModel(app: Application) : AndroidViewModel(app) {
     val state: StateFlow<UiState> = _state.asStateFlow()
 
     private val company = MidadApp.COMPANY_ID
-    private val currency = "YER"
+    @Volatile private var currency = "YER"
     private val OWNER_PHONE = "700000000"
     private var statementPartyId: String? = null
     private var lastDocId: String = ""
@@ -428,6 +444,21 @@ class MidadViewModel(app: Application) : AndroidViewModel(app) {
                 },
             )
         }
+        val co = dao.company(company)!!
+        currency = co.functionalCurrency
+        com.example.midad.core.Money.configureDecimals(currency, co.functionalCurrencyDecimals)
+        if (dao.cashAccounts(company).isEmpty()) {
+            val cashLedger = dao.accountByCode(company, com.example.midad.core.Chart.Acc.CASH)
+            val bankLedger = dao.accountByCode(company, com.example.midad.core.Chart.Acc.BANK)
+            if (cashLedger != null) dao.upsertCashAccount(CashAccountEntity("cash-default", company, cashLedger.name, "CASH", currency = currency, ledgerAccountId = cashLedger.id, defaultReceipt = true, defaultPayment = true))
+            if (bankLedger != null) dao.upsertCashAccount(CashAccountEntity("bank-default", company, bankLedger.name, "BANK", currency = currency, ledgerAccountId = bankLedger.id))
+        }
+        if (dao.currencies(company).isEmpty()) {
+            listOf("USD" to 2, "SAR" to 2).filter { it.first != currency }.forEach { (code, decimals) ->
+                dao.upsertCurrency(CompanyCurrencyEntity(company, code, decimals))
+            }
+        }
+        dao.currencies(company).forEach { com.example.midad.core.Money.configureDecimals(it.code, it.decimalPlaces) }
         val year = LocalDate.now().year
         dao.upsertPeriods(
             (1..12).map {
@@ -473,6 +504,7 @@ class MidadViewModel(app: Application) : AndroidViewModel(app) {
         note: String = "",
         currencyCode: String? = null,
         fxRate: String = "1",
+        settlementAccountId: String? = null,
         onSaved: (String) -> Unit = {},
         onDone: () -> Unit = {},
     ) {
@@ -489,10 +521,13 @@ class MidadViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch {
             _state.value = _state.value.copy(busy = true, error = null)
             try {
+                val pricedLines = if (_state.value.pricesTaxInclusive) lines.map { line ->
+                    line.copy(price = Money.format(Money.exclusiveOfInclusiveTax(Money.parse(line.price.ifBlank { "0" }, currencyCode ?: currency), line.taxPct), currencyCode ?: currency))
+                } else lines
                 withContext(Dispatchers.IO) {
                     val docCur = currencyCode ?: currency
                     val payments = if (paid.isBlank()) 0L else Money.parse(paid, docCur)
-                    val inputs = lines.map {
+                    val inputs = pricedLines.map {
                         PostingService.DocInput(
                             productId = it.productId,
                             name = it.name,
@@ -506,22 +541,31 @@ class MidadViewModel(app: Application) : AndroidViewModel(app) {
                     lastDocId = docId
                     val number = dao.nextNumber(company, kind.code, today().take(4))
 
+                    val financeConfig = dao.company(company)
                     val result: PostingService.DocResult = when (kind) {
                         DocKind.INVOICE -> posting.recordInvoiceDoc(
                             company, today(), docId, inputs, invoiceDiscountPct, 0L,
                             cashMinor = payments, currency = currencyCode, fxRate = fxRate,
+                            outputTaxAccountId = financeConfig?.outputTaxAccountId,
+                            settlementAccountId = settlementAccountId,
                         )
                         DocKind.RETURN -> posting.recordReturnDoc(
                             company, today(), docId, inputs, invoiceDiscountPct,
                             refundCashMinor = payments, currency = currencyCode, fxRate = fxRate,
+                            outputTaxAccountId = financeConfig?.outputTaxAccountId,
+                            settlementAccountId = settlementAccountId,
                         )
                         DocKind.PURCHASE -> posting.recordPurchaseDoc(
                             company, today(), docId, inputs, invoiceDiscountPct, 0L,
                             cashPaidMinor = payments, currency = currencyCode, fxRate = fxRate,
+                            inputTaxAccountId = financeConfig?.inputTaxAccountId,
+                            settlementAccountId = settlementAccountId,
                         )
                         DocKind.PURCHASE_RETURN -> posting.recordPurchaseReturnDoc(
                             company, today(), docId, inputs, invoiceDiscountPct,
                             refundCashMinor = payments, currency = currencyCode, fxRate = fxRate,
+                            inputTaxAccountId = financeConfig?.inputTaxAccountId,
+                            settlementAccountId = settlementAccountId,
                         )
                         else -> throw AccountingException("NOT_POSTABLE", "هذا النوع لا يُرحَّل — احفظه كعرض فقط")
                     }
@@ -1338,7 +1382,7 @@ class MidadViewModel(app: Application) : AndroidViewModel(app) {
                         pinIterations = h.iterations,
                     ),
                 )
-                dao.upsertSetting(SettingEntity("pin_set", "1"))
+                dao.upsertSetting(SettingEntity(company, "pin_set", "1"))
             }
             refresh()
         }
@@ -1374,7 +1418,157 @@ class MidadViewModel(app: Application) : AndroidViewModel(app) {
 
     fun setPaper(paper: String) {
         _state.value = _state.value.copy(paper = paper)
-        viewModelScope.launch { withContext(Dispatchers.IO) { dao.upsertSetting(SettingEntity("paper", paper)) } }
+        viewModelScope.launch { withContext(Dispatchers.IO) { dao.upsertSetting(SettingEntity(company, "paper", paper)) } }
+    }
+
+    fun saveFinancialSettings(taxRatePct: String, inclusive: Boolean, outputTaxAccountId: String, inputTaxAccountId: String, baseCurrency: String) {
+        viewModelScope.launch {
+            try {
+                val pct = taxRatePct.trim().ifBlank { "0" }
+                require(pct.toBigDecimal() in java.math.BigDecimal.ZERO..java.math.BigDecimal("100")) { "نسبة الضريبة يجب أن تكون بين ٠ و١٠٠" }
+                withContext(Dispatchers.IO) {
+                    val co = dao.company(company) ?: error("المنشأة غير موجودة")
+                    val selectedCurrency = dao.currencies(company).firstOrNull { it.code == baseCurrency }
+                    val baseDecimals = if (baseCurrency == co.functionalCurrency) co.functionalCurrencyDecimals else selectedCurrency?.decimalPlaces ?: com.example.midad.core.Money.decimals(baseCurrency)
+                    if (baseCurrency != co.functionalCurrency) dao.upsertCurrency(CompanyCurrencyEntity(company, co.functionalCurrency, co.functionalCurrencyDecimals))
+                    dao.deleteCurrency(company, baseCurrency)
+                    com.example.midad.core.Money.configureDecimals(baseCurrency, baseDecimals)
+                    val supported = (listOf(baseCurrency) + dao.currencies(company).map { it.code }).distinct()
+                    dao.updateCompany(co.copy(functionalCurrency = baseCurrency, functionalCurrencyDecimals = baseDecimals, currenciesCsv = supported.joinToString(","), defaultTaxRatePct = pct,
+                        pricesTaxInclusive = inclusive,
+                        outputTaxAccountId = outputTaxAccountId.ifBlank { null },
+                        inputTaxAccountId = inputTaxAccountId.ifBlank { null }))
+                }
+                currency = baseCurrency
+                refresh()
+                _state.value = _state.value.copy(message = "تم حفظ إعدادات الضريبة والعملة الأساسية")
+            } catch (e: Exception) { _state.value = _state.value.copy(error = e.message ?: "تعذر حفظ الإعدادات") }
+        }
+    }
+
+    fun addCurrency(codeInput: String, decimals: Int) {
+        val code = codeInput.trim().uppercase()
+        if (!code.matches(Regex("[A-Z]{3,5}")) || decimals !in 0..4 || code == currency) {
+            _state.value = _state.value.copy(error = "أدخل رمز عملة صحيحاً وعدداً عشرياً من ٠ إلى ٤")
+            return
+        }
+        viewModelScope.launch { withContext(Dispatchers.IO) {
+            dao.upsertCurrency(CompanyCurrencyEntity(company, code, decimals))
+            com.example.midad.core.Money.configureDecimals(code, decimals)
+            dao.company(company)?.let { co -> dao.updateCompany(co.copy(currenciesCsv = (co.currenciesCsv.split(",") + code).filter(String::isNotBlank).distinct().joinToString(","))) }
+        }; refresh(); _state.value = _state.value.copy(message = "تمت إضافة العملة $code") }
+    }
+
+    fun removeCurrency(code: String) {
+        if (code == currency) { _state.value = _state.value.copy(error = "لا يمكن حذف العملة الأساسية"); return }
+        viewModelScope.launch { withContext(Dispatchers.IO) {
+            dao.deleteCurrency(company, code)
+            dao.company(company)?.let { co -> dao.updateCompany(co.copy(currenciesCsv = co.currenciesCsv.split(",").filter { it != code }.joinToString(","))) }
+        }; refresh(); _state.value = _state.value.copy(message = "تم حذف العملة") }
+    }
+
+    fun saveFxRate(code: String, rate: String, date: String) {
+        try {
+            val value = java.math.BigDecimal(rate.trim()).multiply(java.math.BigDecimal(1_000_000)).setScale(0, java.math.RoundingMode.HALF_UP).longValueExact()
+            require(value > 0) { "سعر الصرف يجب أن يكون موجباً" }
+            LocalDate.parse(date)
+            require(code != currency && _state.value.currencies.any { it.code == code }) { "اختر عملة إضافية معرّفة" }
+            viewModelScope.launch { withContext(Dispatchers.IO) { dao.upsertFxRate(FxRateEntity(UUID.randomUUID().toString(), company, code, value, date)) }; refresh(); _state.value = _state.value.copy(message = "تم حفظ سعر الصرف") }
+        } catch (e: Exception) { _state.value = _state.value.copy(error = e.message ?: "سعر غير صالح") }
+    }
+
+    fun addCashAccount(name: String, type: String, accountNumber: String, accountCurrency: String, opening: String, makeReceiptDefault: Boolean, makePaymentDefault: Boolean) {
+        try {
+            require(name.isNotBlank() && type in setOf("CASH", "BANK")) { "الاسم ونوع الحساب مطلوبان" }
+            val amount = Money.parse(opening.ifBlank { "0" }, accountCurrency)
+            require(amount >= 0) { "الرصيد الافتتاحي لا يكون سالباً" }
+            viewModelScope.launch {
+                try {
+                    withContext(Dispatchers.IO) {
+                        val all = dao.accounts(company)
+                        val prefix = if (type == "CASH") 1110 else 1120
+                        val code = (prefix..1199).firstOrNull { candidate -> all.none { it.code == candidate.toString() } }?.toString() ?: error("لا توجد أكواد حساب متاحة")
+                        val id = UUID.randomUUID().toString()
+                        val account = AccountEntity(id, company, code, name.trim(), "ASSET", "11", false, true)
+                        dao.upsertAccounts(listOf(account))
+                        val cashId = UUID.randomUUID().toString()
+                        if (makeReceiptDefault) dao.clearDefaultReceipt(company)
+                        if (makePaymentDefault) dao.clearDefaultPayment(company)
+                        dao.upsertCashAccount(CashAccountEntity(cashId, company, name.trim(), type, accountNumber.trim(), accountCurrency, amount, id, true, makeReceiptDefault, makePaymentDefault))
+                        if (amount > 0L) {
+                            val capital = dao.accountByCode(company, com.example.midad.core.Chart.Acc.CAPITAL) ?: error("حساب رأس المال غير موجود")
+                            val rate = if (accountCurrency == currency) "1" else dao.latestFxRate(company, accountCurrency, today())?.let { java.math.BigDecimal.valueOf(it.rateMicros, 6).stripTrailingZeros().toPlainString() } ?: error("أدخل سعر صرف للعملة أولاً")
+                            posting.post(JournalRequest(company, today(), "رصيد افتتاحي: ${name.trim()}", "OPENING_CASH", cashId, accountCurrency,
+                                listOf(JournalLine(id, debit = amount, currency = accountCurrency, fxRate = rate), JournalLine(capital.id, credit = amount, currency = accountCurrency, fxRate = rate))))
+                        }
+                    }
+                    refresh(); _state.value = _state.value.copy(message = "تمت إضافة الحساب النقدي")
+                } catch (e: Exception) { _state.value = _state.value.copy(error = e.message ?: "تعذرت إضافة الحساب") }
+            }
+        } catch (e: Exception) { _state.value = _state.value.copy(error = e.message ?: "بيانات غير صالحة") }
+    }
+
+    fun renameCashAccount(id: String, name: String) {
+        viewModelScope.launch {
+            try {
+                withContext(Dispatchers.IO) {
+                    val row = dao.cashAccounts(company).firstOrNull { it.id == id } ?: return@withContext
+                    val value = name.trim().ifBlank { row.name }
+                    dao.upsertCashAccount(row.copy(name = value))
+                    dao.renameAccount(company, row.ledgerAccountId, value)
+                }
+                refresh()
+            } catch (e: Exception) { _state.value = _state.value.copy(error = e.message ?: "تعذر تغيير الاسم") }
+        }
+    }
+
+    fun deactivateCashAccount(id: String) {
+        viewModelScope.launch {
+            try {
+                withContext(Dispatchers.IO) {
+                    val row = dao.cashAccounts(company).firstOrNull { it.id == id } ?: return@withContext
+                    dao.setCashAccountActive(company, id, false)
+                }
+                refresh()
+            } catch (e: Exception) { _state.value = _state.value.copy(error = e.message ?: "تعذر تعطيل الحساب") }
+        }
+    }
+
+    fun activateCashAccount(id: String) {
+        viewModelScope.launch {
+            withContext(Dispatchers.IO) { dao.setCashAccountActive(company, id, true) }
+            refresh()
+        }
+    }
+
+    fun setCashAccountDefault(id: String, receipt: Boolean) {
+        viewModelScope.launch {
+            withContext(Dispatchers.IO) {
+                if (receipt) dao.clearDefaultReceipt(company) else dao.clearDefaultPayment(company)
+                dao.cashAccounts(company).firstOrNull { it.id == id }?.let { row ->
+                    dao.upsertCashAccount(row.copy(defaultReceipt = if (receipt) true else row.defaultReceipt, defaultPayment = if (receipt) row.defaultPayment else true))
+                }
+            }
+            refresh()
+        }
+    }
+
+    fun updateChartAccount(id: String, newName: String, deactivate: Boolean) {
+        viewModelScope.launch {
+            try {
+                withContext(Dispatchers.IO) {
+                    val row = dao.account(company, id) ?: error("الحساب غير موجود")
+                    if (newName.isNotBlank()) dao.renameAccount(company, id, newName.trim())
+                    if (deactivate) {
+                        if (dao.accountMovementCount(company, id) > 0) error("لا يمكن تعطيل الحساب لوجود حركة عليه")
+                        if (row.isGroup && dao.accounts(company).any { it.parentCode == row.code && it.isActive }) error("لا يمكن تعطيل حساب له حسابات فرعية نشطة")
+                        dao.setAccountActive(company, id, false)
+                    }
+                }
+                refresh()
+                _state.value = _state.value.copy(message = "تم تحديث الحساب")
+            } catch (e: Exception) { _state.value = _state.value.copy(error = e.message ?: "تعذر تحديث الحساب") }
+        }
     }
 
     fun saveCompany(name: String, taxNumber: String) {
@@ -1803,7 +1997,8 @@ class MidadViewModel(app: Application) : AndroidViewModel(app) {
                             NormLine(it.accountId, it.debitMinor, it.creditMinor, it.currency, it.fxRate, it.amountBase, it.costCenterId, it.note)
                         }
                 }
-                val ret = TaxReturn.fromEntries(pairs, accounts, today().take(4) + "-01-01", today(), currency)
+                val taxConfig = dao.company(company)
+                val ret = TaxReturn.fromEntries(pairs, accounts, today().take(4) + "-01-01", today(), currency, taxConfig?.defaultTaxRatePct ?: "0", taxConfig?.outputTaxAccountId, taxConfig?.inputTaxAccountId)
                 TaxReturn.html(ret, PrintCompany(dao.company(company)?.name ?: "مؤسستي", taxNumber = dao.company(company)?.taxNumber ?: ""))
             }
             _state.value = _state.value.copy(printHtml = html, printTitle = "الإقرار الضريبي")
@@ -1953,7 +2148,7 @@ class MidadViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch {
             try {
                 withContext(Dispatchers.IO) {
-                    dao.upsertSetting(SettingEntity("reminders", if (enabled) "1" else "0"))
+                    dao.upsertSetting(SettingEntity(company, "reminders", if (enabled) "1" else "0"))
                 }
                 runCatching {
                     val app = context.applicationContext
@@ -2531,10 +2726,11 @@ class MidadViewModel(app: Application) : AndroidViewModel(app) {
         val shiftSum = shiftModel?.let { Shifts.summary(it) }
 
         // ── الإقرار الضريبي والتحليلات ──
-        val vat = TaxReturn.fromEntries(pairs, accounts, yearStart, today(), currency)
+        val vatConfig = dao.company(company)
+        val vat = TaxReturn.fromEntries(pairs, accounts, yearStart, today(), currency, vatConfig?.defaultTaxRatePct ?: "0", vatConfig?.outputTaxAccountId, vatConfig?.inputTaxAccountId)
         val facts = salesFacts()
 
-        val settings = dao.settings().associate { it.key to it.value }
+        val settings = dao.settings(company).associate { it.key to it.value }
         val user = dao.users(company).firstOrNull()
 
         // ── التسوية البنكية: كشف البنك مقابل حركة حساب البنك في الأستاذ ──
@@ -2793,6 +2989,14 @@ class MidadViewModel(app: Application) : AndroidViewModel(app) {
             companyName = dao.company(company)?.name ?: "مؤسستي",
             companyTax = dao.company(company)?.taxNumber ?: "",
             currency = currency,
+            taxRatePct = dao.company(company)?.defaultTaxRatePct ?: "0",
+            pricesTaxInclusive = dao.company(company)?.pricesTaxInclusive ?: false,
+            outputTaxAccountId = dao.company(company)?.outputTaxAccountId ?: "",
+            inputTaxAccountId = dao.company(company)?.inputTaxAccountId ?: "",
+            currencies = (listOf(CurrencyRowUi(currency, com.example.midad.core.Money.decimals(currency), true)) + dao.currencies(company).map { CurrencyRowUi(it.code, it.decimalPlaces, false) }),
+            fxRates = dao.fxRates(company).filter { it.date <= today() }.map { FxRateRowUi(it.currency, java.math.BigDecimal.valueOf(it.rateMicros, 6).stripTrailingZeros().toPlainString(), it.date) },
+            cashAccounts = dao.cashAccounts(company).map { CashAccountRowUi(it.id, it.name, it.type, it.accountNumber, it.currency, Money.format(it.openingBalanceMinor, it.currency), it.isActive, it.defaultReceipt, it.defaultPayment, it.ledgerAccountId) },
+            chartAccounts = dao.accounts(company).map { a -> ChartAccountRowUi(a.id, a.code, a.name, a.isActive, dao.accountMovementCount(company, a.id)) },
             userName = user?.name ?: "",
             userPhone = user?.phone ?: "",
             role = user?.role?.let { r -> runCatching { Role.valueOf(r) }.getOrNull() } ?: Role.OWNER,

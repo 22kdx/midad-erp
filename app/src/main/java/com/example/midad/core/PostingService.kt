@@ -229,6 +229,8 @@ class PostingService(
         cardMinor: Long = 0L,
         currency: String? = null,
         fxRate: String = "1",
+        outputTaxAccountId: String? = null,
+        settlementAccountId: String? = null,
     ): DocResult {
         val errors = DocEngine.validate(inputs.map {
             DocLine(it.productId, it.name.ifBlank { it.productId }, it.qtyMilli, it.unitPriceMinor,
@@ -250,7 +252,7 @@ class PostingService(
         }
 
         val totals = DocEngine.totals(lines, invoiceDiscountPct, roundingStep)
-        val (jl, _) = DocPosting.sales(book(companyId), totals, Settlement(cashMinor, cardMinor), currency, fxRate)
+        val (jl, _) = DocPosting.sales(book(companyId), totals, Settlement(cashMinor, cardMinor), currency, fxRate, outputTaxAccountId, settlementAccountId)
         val entry = post(
             JournalRequest(companyId, date, "فاتورة مبيعات $docId", "INVOICE", docId, currency, jl),
         )
@@ -274,13 +276,15 @@ class PostingService(
         refundCreditMinor: Long = 0L,
         currency: String? = null,
         fxRate: String = "1",
+        outputTaxAccountId: String? = null,
+        settlementAccountId: String? = null,
     ): DocResult {
         val lines = inputs.map { it ->
             DocLine(it.productId, it.name, it.qtyMilli, it.unitPriceMinor, it.discountPct, it.taxRatePct,
                 store.stock(companyId, it.productId).avgCostMinor)
         }
         val totals = DocEngine.totals(lines, invoiceDiscountPct)
-        val (jl, _) = DocPosting.salesReturn(book(companyId), totals, refundCashMinor, refundCreditMinor, currency, fxRate)
+        val (jl, _) = DocPosting.salesReturn(book(companyId), totals, refundCashMinor, refundCreditMinor, currency, fxRate, outputTaxAccountId, settlementAccountId)
         val entry = post(JournalRequest(companyId, date, "مردود مبيعات $docId", "RETURN", docId, currency, jl))
         inputs.filterNot { it.isService }.forEach {
             val stock = store.stock(companyId, it.productId)
@@ -302,12 +306,14 @@ class PostingService(
         cashPaidMinor: Long = 0L,
         currency: String? = null,
         fxRate: String = "1",
+        inputTaxAccountId: String? = null,
+        settlementAccountId: String? = null,
     ): DocResult {
         val lines = inputs.map {
             DocLine(it.productId, it.name, it.qtyMilli, it.unitPriceMinor, it.discountPct, it.taxRatePct, 0L)
         }
         val totals = DocEngine.totals(lines, invoiceDiscountPct, 0L, landedCostMinor)
-        val (jl, _) = DocPosting.purchase(book(companyId), totals, cashPaidMinor, landedCostMinor, currency, fxRate)
+        val (jl, _) = DocPosting.purchase(book(companyId), totals, cashPaidMinor, landedCostMinor, currency, fxRate, inputTaxAccountId, settlementAccountId)
         val entry = post(JournalRequest(companyId, date, "فاتورة مشتريات $docId", "PURCHASE", docId, currency, jl))
 
         // مصاريف الوصول تُوزّع على البنود بنسبة قيمتها
@@ -333,13 +339,15 @@ class PostingService(
         refundCashMinor: Long = 0L,
         currency: String? = null,
         fxRate: String = "1",
+        inputTaxAccountId: String? = null,
+        settlementAccountId: String? = null,
     ): DocResult {
         val lines = inputs.map {
             DocLine(it.productId, it.name, it.qtyMilli, it.unitPriceMinor, it.discountPct, it.taxRatePct,
                 store.stock(companyId, it.productId).avgCostMinor)
         }
         val totals = DocEngine.totals(lines, invoiceDiscountPct)
-        val (jl, _) = DocPosting.purchaseReturn(book(companyId), totals, refundCashMinor, currency, fxRate)
+        val (jl, _) = DocPosting.purchaseReturn(book(companyId), totals, refundCashMinor, currency, fxRate, inputTaxAccountId, settlementAccountId)
         val entry = post(
             JournalRequest(companyId, date, "مردود مشتريات $docId", "PURCHASE_RETURN", docId, currency, jl),
         )
