@@ -14,7 +14,7 @@ on:
       release_tag:
         description: وسم الإصدار
         required: false
-        default: v1.0.4
+        default: v1.0.5
         type: string
 
 permissions:
@@ -85,14 +85,18 @@ jobs:
       - name: تجهيز ورفع الإصدار
         env:
           GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ inputs.release_tag || 'v1.0.4' }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
         run: |
           set -euo pipefail
+          VERSION="$(grep -oE 'versionName = "[^"]+"' app/build.gradle.kts | cut -d '"' -f 2)"
+          test -n "$VERSION"
+          TAG="${RELEASE_TAG:-v$VERSION}"
           APK="$(find release-assets -maxdepth 2 -type f -name '*.apk' -print -quit)"
           test -n "$APK"
-          cp "$APK" tamm-1.0.4-debug.apk
-          gh release create "$RELEASE_TAG" tamm-1.0.4-debug.apk \
-            --repo "$GITHUB_REPOSITORY" \
-            --target "$GITHUB_SHA" \
-            --title "TAMM 1.0.4" \
-            --notes "دفعة الإعدادات المالية والعملات وأسعار الصرف. اجتازت 160 اختبار نواة وبناء APK على CI."
+          APK_NAME="tamm-${VERSION}-debug.apk"
+          cp "$APK" "$APK_NAME"
+          gh release create "$TAG" "$APK_NAME" \\
+            --repo "$GITHUB_REPOSITORY" \\
+            --target "$GITHUB_SHA" \\
+            --title "TAMM $VERSION" \\
+            --notes "واجهة TAMM المحسّنة. اجتازت اختبارات النواة وبناء APK على CI."

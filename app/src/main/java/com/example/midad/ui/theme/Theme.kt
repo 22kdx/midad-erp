@@ -44,16 +44,16 @@ data class MizanColors(
 )
 
 val MizanLight = MizanColors(
-    bg = Color(0xFFF4F6FA),
+    bg = Color(0xFFF5F7FA),
     surface = Color(0xFFFFFFFF),
-    surface2 = Color(0xFFF1F3F8),
-    surface3 = Color(0xFFE7EAF3),
-    stroke = Color(0xFFE3E7EF),
-    text = Color(0xFF0F1424),
-    text2 = Color(0xFF5A6478),
-    text3 = Color(0xFF8F98AB),
-    primary = Color(0xFF6E54FF),
-    primarySoft = Color(0xFF5B3FF0),
+    surface2 = Color(0xFFF0F4F3),
+    surface3 = Color(0xFFE6EEEB),
+    stroke = Color(0xFFE1E8E5),
+    text = Color(0xFF172521),
+    text2 = Color(0xFF5B6C66),
+    text3 = Color(0xFF87958F),
+    primary = Color(0xFF147D64),
+    primarySoft = Color(0xFF0F624F),
     mint = Color(0xFF0B9A6A),
     coral = Color(0xFFE5384F),
     amber = Color(0xFFC97A00),
@@ -61,16 +61,16 @@ val MizanLight = MizanColors(
 )
 
 val MizanDark = MizanColors(
-    bg = Color(0xFF0B0E14),
-    surface = Color(0xFF131823),
-    surface2 = Color(0xFF1A2030),
-    surface3 = Color(0xFF262E40),
-    stroke = Color(0xFF232B3A),
-    text = Color(0xFFF3F5FA),
-    text2 = Color(0xFF98A2B6),
-    text3 = Color(0xFF5F6A80),
-    primary = Color(0xFF7B61FF),
-    primarySoft = Color(0xFFA595FF),
+    bg = Color(0xFF101816),
+    surface = Color(0xFF18211E),
+    surface2 = Color(0xFF202C28),
+    surface3 = Color(0xFF2B3934),
+    stroke = Color(0xFF2B3934),
+    text = Color(0xFFF1F6F3),
+    text2 = Color(0xFFABBAB3),
+    text3 = Color(0xFF71837B),
+    primary = Color(0xFF4DBB98),
+    primarySoft = Color(0xFF7CD3B5),
     mint = Color(0xFF2ED3A0),
     coral = Color(0xFFFF6B7D),
     amber = Color(0xFFFFB547),
@@ -82,9 +82,9 @@ val LocalMizan = staticCompositionLocalOf { MizanLight }
 private val MizanShapes = Shapes(
     extraSmall = androidx.compose.foundation.shape.RoundedCornerShape(8.dp),
     small = androidx.compose.foundation.shape.RoundedCornerShape(10.dp),
-    medium = androidx.compose.foundation.shape.RoundedCornerShape(14.dp),
-    large = androidx.compose.foundation.shape.RoundedCornerShape(16.dp),
-    extraLarge = androidx.compose.foundation.shape.RoundedCornerShape(24.dp),
+    medium = androidx.compose.foundation.shape.RoundedCornerShape(16.dp),
+    large = androidx.compose.foundation.shape.RoundedCornerShape(20.dp),
+    extraLarge = androidx.compose.foundation.shape.RoundedCornerShape(28.dp),
 )
 
 /** خط مِداد — IBM Plex Sans Arabic مضمَّن داخل التطبيق (بلا إنترنت) */

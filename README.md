@@ -2,7 +2,7 @@
 
 [![اختبارات وبناء](https://github.com/22kdx/midad-erp/actions/workflows/tests.yml/badge.svg)](https://github.com/22kdx/midad-erp/actions/workflows/tests.yml)
 
-> **تحميل التطبيق:** [tamm-1.0.4-debug.apk](https://github.com/22kdx/midad-erp/releases/latest) — أندرويد ٨ (API 26) وأحدث.
+> **تحميل التطبيق:** [tamm-1.0.5-debug.apk](https://github.com/22kdx/midad-erp/releases/latest) — أندرويد ٨ (API 26) وأحدث.
 > البناء يجري ويُختبر تلقائياً على GitHub Actions: ١٦٠ اختبار نواة + APK جاهز في كل دفعة.
 
 
@@ -15,7 +15,7 @@ midad-app/
 │   ├── data/local/    ← Room v6: ٣٣ جدولاً + DAO + RoomErpStore
 │   ├── ui/theme/      ← ثيم مِداد (ألوان وتوكنز مطابقة للتصميم)
 │   ├── ui/components/ ← مكوّنات مشتركة (بطاقات · إحصاءات · عناوين)
-│   ├── ui/screens/    ← ١١ شاشة أعلى الشاشة (تبويبات أفقية)
+│   ├── ui/screens/    ← واجهات عربية بتنقّل سفلي وأدوات مرتّبة داخل «المزيد»
 │   └── ui/MidadViewModel.kt
 ├── build.sh           ← تشغيل اختبارات النواة بلا Android SDK
 └── settings.gradle.kts / build.gradle.kts / app/build.gradle.kts
