@@ -102,8 +102,4 @@ jobs:
           test -n "$APK"
           APK_NAME="tamm-${VERSION}-debug.apk"
           cp "$APK" "$APK_NAME"
-          gh release create "$TAG" "$APK_NAME" \\
-            --repo "$GITHUB_REPOSITORY" \\
-            --target "$GITHUB_SHA" \\
-            --title "TAMM $VERSION" \\
-            --notes "واجهة TAMM المحسّنة. اجتازت اختبارات النواة وبناء APK على CI."
+          gh release create "$TAG" "$APK_NAME" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "TAMM $VERSION" --notes "واجهة TAMM المحسّنة. اجتازت اختبارات النواة وبناء APK على CI."
