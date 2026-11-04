@@ -5,6 +5,20 @@ on:
     branches: [ main ]
   pull_request:
   workflow_dispatch:
+    inputs:
+      publish_release:
+        description: نشر APK على GitHub Releases بعد نجاح الاختبارات والبناء
+        required: false
+        default: false
+        type: boolean
+      release_tag:
+        description: وسم الإصدار
+        required: false
+        default: v1.0.4
+        type: string
+
+permissions:
+  contents: read
 
 jobs:
   core-tests:
@@ -55,3 +69,30 @@ jobs:
           name: midad-debug-apk
           path: app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
+
+  release:
+    name: نشر APK في Releases
+    permissions:
+      contents: write
+    runs-on: ubuntu-latest
+    needs: [core-tests, apk]
+    if: github.event_name == 'workflow_dispatch' && inputs.publish_release
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: midad-debug-apk
+          path: release-assets
+      - name: تجهيز ورفع الإصدار
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          set -euo pipefail
+          APK="$(find release-assets -maxdepth 2 -type f -name '*.apk' -print -quit)"
+          test -n "$APK"
+          cp "$APK" tamm-1.0.4-debug.apk
+          gh release create "$RELEASE_TAG" tamm-1.0.4-debug.apk \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" \
+            --title "TAMM 1.0.4" \
+            --notes "دفعة الإعدادات المالية والعملات وأسعار الصرف. اجتازت 160 اختبار نواة وبناء APK على CI."
